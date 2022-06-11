@@ -2,7 +2,26 @@
 
 Pure Python Parser for SHX Hershey font files.
 
-SHX files are an AutoCad format which encodes single line fonts. This format is used for many CNC and laser operations where filled fonts are not as useful or helpful.
+SHX files are an AutoCad format which can encode single line fonts.
+
+This format is used for many CNC and laser operations.
+
+---
+
+# Progress (Planning)
+
+Things currently parse but, do not actually produce correct results. Also, very little has been done to check the `bigfont` and `unifont` types.
+
+# Encoding
+Calling the parser on a `SHX` file will parse the file. The glyph data is accessed via the `ShxFile.glyphs` dictionary which stores the particular commands.
+These positions are stored (or will be) in segments. Each segment is:
+* `(x0,y0)` -- Move to Position.
+* `((x0,y0), (x1, y1))` --- Straight Line start->end
+* `((x0,y0), (cx, cy), (x1, y1))` --- Arc start->control->end where control is a point on the arc that starts at start and ends at end.
+
+Or something like that, I haven't really decided or figured it out yet.
+
+# Format
 
 For some format descriptions and explanations see:
 
@@ -12,7 +31,6 @@ And:
 
 * https://help.autodesk.com/view/ACD/2020/ENU/?guid=GUID-06832147-16BE-4A66-A6D0-3ADF98DC8228
 
---
 
 Primarily the format performs regular (octant direction, distance) and 15 speciality operations.
 
@@ -30,8 +48,8 @@ Primarily the format performs regular (octant direction, distance) and 15 specia
 * DRAW_SUBSHAPE - References the glyph data of another glyph.
 * XY_DISPLACEMENT - Moves to a long dx, dy position.
 * POLY_XY_DISPLACEMENT - Performs a sequence of long dx, dy position changes. 0,0 terminates.
-* OCTANT_ARC - Performs a octant_arc operation. Performing an arc across some octants.
-* FRACTIONAL_ARC - Performs a octant_arc operation with fractional value offsets.
+* OCTANT_ARC - Performs an octant_arc operation. Performing an arc across some octants.
+* FRACTIONAL_ARC - Performs an octant_arc operation with fractional value offsets.
 * BULGE_ARC - Performs bulge arc operations with dx, dy, and bulge.
 * POLY_BULGE_ARC - Performs a sequence of bulge arc operations. 0,0 terminates.
 * COND_MODE_2 - Performs the next command conditionally, and only if the current mode is vertical.
