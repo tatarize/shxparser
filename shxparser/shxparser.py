@@ -142,16 +142,15 @@ class ShxFile:
                 self.font_height = read_int_8(f)  # vector lengths above baseline
                 self.font_width = read_int_8(f)  # vector lengths below baseline
                 self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
-                end = read_int_8(f)
             else:
                 self.glyph_bytes[index] = f.read(length)[1:]
         for b in self.glyph_bytes:
             self.glyphs[b] = self._parse_glyph(self.glyph_bytes[b], b)
 
-
     def _parse_unifont(self, f):
         count = read_int_32le(f)
         length = read_int_16le(f)
+        f.seek(5)
         self.font_name = read_string(f)
         self.font_height = read_int_8(f)
         self.font_width = read_int_8(f)
@@ -219,9 +218,17 @@ class ShxFile:
                         glyph = b_glyph.pop(0)
                         b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
                     elif self.type == "bigfont":
-                        # TODO: Requires some different scaling?
-                        glyph = int_16le([b_glyph.pop(0), b_glyph.pop(0)])
-                        b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
+                        glyph = b_glyph.pop(0)
+                        if glyph == 0:
+                            glyph = int_16le([b_glyph.pop(0), b_glyph.pop(0)])
+                            origin_x = b_glyph.pop(0) * scale
+                            origin_y = b_glyph.pop(0) * scale
+                            width = b_glyph.pop(0) * scale
+                            height = b_glyph.pop(0) * scale
+                        try:
+                            b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
+                        except KeyError:
+                            pass # TODO: Likely some bug here.
                     elif self.type == "unifont":
                         glyph = int_16le([b_glyph.pop(0), b_glyph.pop(0)])
                         b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph

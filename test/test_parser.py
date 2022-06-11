@@ -9,8 +9,8 @@ def draw(paths, w, h, fw, fh, filename="test.png"):
     from PIL import Image, ImageDraw
     im = Image.new('RGBA', (w, h), "white")
     draw = ImageDraw.Draw(im)
-    dx = fw
-    dy = -fh
+    dx = 0
+    dy = 0
     for path in paths:
         x = 0
         y = 0
@@ -19,11 +19,17 @@ def draw(paths, w, h, fw, fh, filename="test.png"):
                 x = p[0]
                 y = p[1]
             if len(p) == 4:
-                draw.line((p[0] + dx, -p[1] - dy, p[2] + dx, -p[3] - dy), fill="black")
+                x0 = p[0] + dx + fw
+                y0 = p[1] + dy - fh
+                x1 = p[2] + dx + fw
+                y1 = p[3] + dy - fh
+                draw.line((x0, -y0, x1, -y1), fill="black")
                 x = p[2]
                 y = p[3]
         dx += x
         dy += y
+        print(dx)
+        print(dy)
     im.save(filename)
 
 
