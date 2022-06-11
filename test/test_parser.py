@@ -9,13 +9,14 @@ def draw(paths, w, h, below, above, filename="test.png"):
     from PIL import Image, ImageDraw
     im = Image.new('RGBA', (w, h), "white")
     draw = ImageDraw.Draw(im)
+    dx = below + above
     for path in paths:
-        last_x = None
-        last_y = None
-        for x, y in path:
-            if last_x is not None:
-                draw.line((last_x, last_y, x, y), fill="black")
-            last_x, last_y = x+200, y + 200
+        for p in path:
+            if len(p) == 2:
+                pass
+            if len(p) == 4:
+                draw.line((p[0] + dx, -p[1], p[2] + dx, -p[3]), fill="black")
+        dx += above
     im.save(filename)
 
 
@@ -28,12 +29,14 @@ class TestParser(unittest.TestCase):
             shx = ShxFile(f)
             print(f"Parsed: {str(shx)} @ {str(f)}")
             paths = list()
-            for letter in "hello world":
+            txt = "hello world"
+            for letter in txt:
                 try:
                     glyph = shx.glyphs[ord(letter)]
                 except KeyError:
                     continue
                 paths.append(glyph)
-            draw(paths, 5000, 1000, shx.below, shx.above, f"{f}.png")
+                print(glyph)
+            draw(paths, shx.above * (len(txt) + 1), shx.above, shx.below, shx.above, f"{f}.png")
 
 
