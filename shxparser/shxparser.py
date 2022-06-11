@@ -77,8 +77,8 @@ class ShxFile:
         self.glyph_bytes = dict()
         self.glyphs = dict()
         self.font_name = "unknown"
-        self.above = None
-        self.below = None
+        self.font_height = None
+        self.font_width = None
         self.modes = None
         self.unicode = False
         self.embedded = False
@@ -109,8 +109,8 @@ class ShxFile:
         for index, length in glyph_ref:
             if index == 0:
                 self.font_name = read_string(f)
-                self.above = read_int_8(f)  # vector lengths above baseline
-                self.below = read_int_8(f)  # vector lengths below baseline
+                self.font_height = read_int_8(f)  # vector lengths above baseline
+                self.font_width = read_int_8(f)  # vector lengths below baseline
                 self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
                 end = read_int_16le(f)
             else:
@@ -119,8 +119,8 @@ class ShxFile:
             self.glyphs[b] = self._parse_glyph(self.glyph_bytes[b], b)
 
     def _parse_bigfont(self, f):
-        length = read_int_16le(f)
         count = read_int_16le(f)
+        length = read_int_16le(f)
         changes = list()
         change_count = read_int_16le(f)
         for i in range(change_count):
@@ -136,14 +136,15 @@ class ShxFile:
             glyph_ref.append((index, length, offset))
 
         for index, length, offset in glyph_ref:
+            f.seek(offset,0)
             if index == 0:
-                self.font_name = read_string(f)
-                self.above = read_int_8(f)  # vector lengths above baseline
-                self.below = read_int_8(f)  # vector lengths below baseline
+                # self.font_name = read_string(f)
+                self.font_height = read_int_8(f)  # vector lengths above baseline
+                self.font_width = read_int_8(f)  # vector lengths below baseline
                 self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
-                end = read_int_16le(f)
+                end = read_int_8(f)
             else:
-                self.glyph_bytes[index] = f.read(length)
+                self.glyph_bytes[index] = f.read(length)[1:]
         for b in self.glyph_bytes:
             self.glyphs[b] = self._parse_glyph(self.glyph_bytes[b], b)
 
@@ -152,8 +153,8 @@ class ShxFile:
         count = read_int_32le(f)
         length = read_int_16le(f)
         self.font_name = read_string(f)
-        self.above = read_int_8(f)
-        self.below = read_int_8(f)
+        self.font_height = read_int_8(f)
+        self.font_width = read_int_8(f)
         self.mode = read_int_8(f)
         self.unicode = read_int_8(f)
         self.embedded = read_int_8(f)
@@ -184,8 +185,12 @@ class ShxFile:
                 elif direction == PEN_DOWN:
                     pen = True
                     segments.append((x, y))
+                    last_x, last_y = x, y
+                    continue
                 elif direction == PEN_UP:
                     pen = False
+                    last_x, last_y = x, y
+                    continue
                 elif direction == DIVIDE_VECTOR:
                     scale /= b_glyph.pop(0)
                     continue

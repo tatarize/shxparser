@@ -5,12 +5,12 @@ from itertools import chain
 from shxparser.shxparser import ShxFile
 
 
-def draw(paths, w, h, below, above, filename="test.png"):
+def draw(paths, w, h, fw, fh, filename="test.png"):
     from PIL import Image, ImageDraw
     im = Image.new('RGBA', (w, h), "white")
     draw = ImageDraw.Draw(im)
-    dx = 100
-    dy = -above+below
+    dx = fw
+    dy = -fh
     for path in paths:
         x = 0
         y = 0
@@ -44,6 +44,6 @@ class TestParser(unittest.TestCase):
                     continue
                 paths.append(glyph)
                 print(glyph)
-            draw(paths, 1000, 100, shx.below, shx.above, f"{f}.png")
+            draw(paths, 1000, 100, shx.font_width, shx.font_height, f"{f}.png")
 
 
