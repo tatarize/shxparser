@@ -67,7 +67,7 @@ class ShxFile:
         self._parse(filename)
 
     def __str__(self):
-        return f'ShxFile for {self.font_name}'
+        return f'{self.type}("{self.font_name}", {self.version}, glyphs: {len(self.glyphs)})'
 
     def _parse_header(self, f):
         header = read_string(f)
