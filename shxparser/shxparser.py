@@ -63,9 +63,9 @@ def read_string(stream):
     while True:
         b = stream.read(1)
         if b == b'':
-            return bb.decode('utf8')
+            return bb.decode('utf-8')
         if b == b'\r' or b == b'\n' or b == b'\x00':
-            return bb.decode('utf8')
+            return bb.decode('utf-8')
         bb += b
 
 
@@ -119,7 +119,34 @@ class ShxFile:
             self.glyphs[b] = self._parse_glyph(self.glyph_bytes[b], b)
 
     def _parse_bigfont(self, f):
-        pass
+        length = read_int_16le(f)
+        count = read_int_16le(f)
+        changes = list()
+        change_count = read_int_16le(f)
+        for i in range(change_count):
+            start = read_int_16le(f)
+            end = read_int_16le(f)
+            changes.append((start, end))
+
+        glyph_ref = list()
+        for i in range(count):
+            index = read_int_16le(f)
+            length = read_int_16le(f)
+            offset = read_int_32le(f)
+            glyph_ref.append((index, length, offset))
+
+        for index, length, offset in glyph_ref:
+            if index == 0:
+                self.font_name = read_string(f)
+                self.above = read_int_8(f)  # vector lengths above baseline
+                self.below = read_int_8(f)  # vector lengths below baseline
+                self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
+                end = read_int_16le(f)
+            else:
+                self.glyph_bytes[index] = f.read(length)
+        for b in self.glyph_bytes:
+            self.glyphs[b] = self._parse_glyph(self.glyph_bytes[b], b)
+
 
     def _parse_unifont(self, f):
         count = read_int_32le(f)
@@ -146,7 +173,7 @@ class ShxFile:
         last_y = None
         scale = 1.0
         segments = list()
-        pen = True
+        pen = False
         while b_glyph:
             b = b_glyph.pop(0)
             direction = b & 0x0f
@@ -167,8 +194,9 @@ class ShxFile:
                     continue
                 elif direction == PUSH_STACK:
                     self._stack.append((x, y))
-                    if len(self._stack) == 4:
-                        raise IndexError(f"Position stack overflow in shape {chr(glyph_index)}")
+                    # if len(self._stack) == 4:
+                    #     raise IndexError(f"Position stack overflow in shape {chr(glyph_index)}")
+                    last_x, last_y = x, y
                     continue
                 elif direction == POP_STACK:
                     try:
@@ -179,6 +207,7 @@ class ShxFile:
                         segments.append((x, y))
                     else:
                         segments.append((x, y))
+                    last_x, last_y = x, y
                     continue
                 elif direction == DRAW_SUBSHAPE:
                     if self.type == "shapes":
@@ -198,9 +227,14 @@ class ShxFile:
                     x += dx * scale
                     y += dy * scale
                     if pen:
-                        segments.append((last_x, last_y, x, y))
+                        if last_x is None or last_y is None:
+                            print("Fail")
+                        else:
+                            segments.append((last_x, last_y, x, y))
                     else:
                         segments.append((x, y))
+                    last_x, last_y = x, y
+                    continue
                 elif direction == POLY_XY_DISPLACEMENT:
                     while True:
                         dx = signed8(b_glyph.pop(0))
@@ -210,9 +244,14 @@ class ShxFile:
                         x += dx * scale
                         y += dy * scale
                         if pen:
-                            segments.append((last_x, last_y, x, y))
+                            if last_x is None or last_y is None:
+                                print("Fail")
+                            else:
+                                segments.append((last_x, last_y, x, y))
                         else:
                             segments.append((x, y))
+                        last_x, last_y = x, y
+                    continue
                 elif direction == OCTANT_ARC:
                     octant = tau / 8.0
                     radius = b_glyph.pop(0)
@@ -233,9 +272,14 @@ class ShxFile:
                     x += dx * scale
                     y += dy * scale
                     if pen:
-                        segments.append((last_x, last_y, x, y))
+                        if last_x is None or last_y is None:
+                            print("Fail")
+                        else:
+                            segments.append((last_x, last_y, x, y))
                     else:
                         segments.append((x, y))
+                    last_x, last_y = x, y
+                    continue
                 elif direction == FRACTIONAL_ARC:
                     """
                     Fractional Arc.
@@ -267,9 +311,14 @@ class ShxFile:
                     x += dx * scale
                     y += dy * scale
                     if pen:
-                        segments.append((last_x, last_y, x, y))
+                        if last_x is None or last_y is None:
+                            print("Fail")
+                        else:
+                            segments.append((last_x, last_y, x, y))
                     else:
                         segments.append((x, y))
+                    last_x, last_y = x, y
+                    continue
                 elif direction == BULGE_ARC:
                     dx = signed8(b_glyph.pop(0))
                     dy = signed8(b_glyph.pop(0))
@@ -278,9 +327,14 @@ class ShxFile:
                     x += dx * scale
                     y += dy * scale
                     if pen:
-                        segments.append((last_x, last_y, x, y))
+                        if last_x is None or last_y is None:
+                            print("Fail")
+                        else:
+                            segments.append((last_x, last_y, x, y))
                     else:
                         segments.append((x, y))
+                    last_x, last_y = x, y
+                    continue
                 elif direction == POLY_BULGE_ARC:
                     while True:
                         dx = signed8(b_glyph.pop(0))
@@ -292,9 +346,14 @@ class ShxFile:
                         x += dx * scale
                         y += dy * scale
                         if pen:
-                            segments.append((last_x, last_y, x, y))
+                            if last_x is None or last_y is None:
+                                print("Fail")
+                            else:
+                                segments.append((last_x, last_y, x, y))
                         else:
                             segments.append((x, y))
+                        last_x, last_y = x, y
+                    continue
                 elif direction == COND_MODE_2:
                     pass
             else:
@@ -321,10 +380,14 @@ class ShxFile:
                 x += dx * length * scale
                 y += dy * length * scale
                 if pen:
+                    assert (last_x is not None)
+                    assert (last_y is not None)
                     segments.append((last_x, last_y, x, y))
                 else:
                     segments.append((x, y))
-            last_x, last_y = x, y
+                last_x, last_y = x, y
+                continue
+        print("unreachable")
         return segments
 
     def _parse(self, filename):
