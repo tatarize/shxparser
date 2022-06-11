@@ -64,6 +64,7 @@ class ShxFile:
         self.above = None
         self.below = None
         self.modes = None
+        self._stack = []
         self._parse(filename)
 
     def __str__(self):
@@ -107,7 +108,6 @@ class ShxFile:
 
     def _parse_glyph(self, byte_glyph, glyph_index):
         b_glyph = bytearray(byte_glyph)
-        stack = list()
         x = 0
         y = 0
         scale = 1.0
@@ -131,15 +131,17 @@ class ShxFile:
                     scale *= b_glyph.pop(0)
                     continue
                 elif direction == PUSH_STACK:
-                    stack.append((x, y))
-                    if len(stack) == 4:
+                    self._stack.append((x, y))
+                    print(len(self._stack))
+                    if len(self._stack) == 4:
                         raise IndexError(f"Position stack overflow in shape {chr(glyph_index)}")
                     continue
                 elif direction == POP_STACK:
                     try:
-                        x, y = stack.pop()
+                        x, y = self._stack.pop()
                     except IndexError:
                         raise IndexError(f"Position stack underflow in shape {chr(glyph_index)}")
+                    print(len(self._stack))
                     if pen:
                         points.append((x, y))
                 elif direction == DRAW_SUBSHAPE:
@@ -157,8 +159,8 @@ class ShxFile:
                 elif direction == XY_DISPLACEMENT:
                     dx = signed8(b_glyph.pop(0))
                     dy = signed8(b_glyph.pop(0))
-                    y += dx * scale
-                    x += dy * scale
+                    x += dx * scale
+                    y += dy * scale
                     if pen:
                         points.append((x, y))
                     continue
@@ -168,8 +170,8 @@ class ShxFile:
                         dy = signed8(b_glyph.pop(0))
                         if dx == 0 and dy == 0:
                             break
-                        y += dx * scale
-                        x += dy * scale
+                        x += dx * scale
+                        y += dy * scale
                         if pen:
                             points.append((x, y))
                     continue
@@ -190,8 +192,8 @@ class ShxFile:
                     cy = -radius * sin(start_octent)
                     dx = cx + radius * cos(end_octent)
                     dy = cy + radius * sin(end_octent)
-                    y += dx * scale
-                    x += dy * scale
+                    x += dx * scale
+                    y += dy * scale
                     if pen:
                         points.append((x, y))
                 elif direction == FRACTIONAL_ARC:
@@ -222,8 +224,8 @@ class ShxFile:
                     cy = -radius * sin(start_angle)
                     dx = cx + radius * cos(end_angle)
                     dy = cy + radius * sin(end_angle)
-                    y += dx * scale
-                    x += dy * scale
+                    x += dx * scale
+                    y += dy * scale
                     if pen:
                         points.append((x, y))
                 elif direction == BULGE_ARC:
@@ -231,8 +233,8 @@ class ShxFile:
                     dy = signed8(b_glyph.pop(0))
                     h = signed8(b_glyph.pop(0))
                     bulge = h / 127.0
-                    y += dx * scale
-                    x += dy * scale
+                    x += dx * scale
+                    y += dy * scale
                     if pen:
                         points.append((x, y))
                 elif direction == POLY_BULGE_ARC:
@@ -243,8 +245,8 @@ class ShxFile:
                             break
                         h = signed8(b_glyph.pop(0))
                         bulge = h / 127.0
-                        y += dx * scale
-                        x += dy * scale
+                        x += dx * scale
+                        y += dy * scale
                         if pen:
                             points.append((x, y))
                 elif direction == COND_MODE_2:
