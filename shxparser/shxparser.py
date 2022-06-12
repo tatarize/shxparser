@@ -237,11 +237,11 @@ class ShxFont:
             length = read_int_16le(f)
             self.glyphs[index] = f.read(length)
 
-    def render(self, path, text, horizontal=True):
+    def render(self, path, text, horizontal=True, font_size=12.0):
         skip = False
         x = 0
         y = 0
-        scale = 1.0
+        scale = font_size / self.above
         stack = []
         for letter in text:
             try:
