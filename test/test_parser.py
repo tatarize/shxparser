@@ -45,11 +45,9 @@ class TestParser(unittest.TestCase):
 
     def test_parse(self):
         for f in chain(glob("parse/*.SHX"), glob("parse/*.shx")):
-            print(f"Attempt parsing of file: {str(f)}")
             shx = ShxFile(f)
-            print(f"Parsed: {str(shx)} @ {str(f)}")
             paths = ShxPath()
-            shx.render(paths, "hello world")
+            shx.render(paths, "the quick brown fox jumps over the lazy cow")
             draw(paths, 1000, 100, shx.font_width, shx.font_height, f"{f}.png")
 
 
