@@ -21,7 +21,7 @@ def draw(paths, w, h, font_size, filename="test.png"):
             y0 = p[1] - font_size
             x1 = p[2]
             y1 = p[3] - font_size
-            draw.line((x0, -y0, x1, -y1), fill="black")
+            draw.line((x0, -y0, x1, -y1), fill="black", width=3)
         elif len(p) == 6:
             x0 = p[0]
             y0 = p[1] - font_size
@@ -35,7 +35,7 @@ def draw(paths, w, h, font_size, filename="test.png"):
             for i in range(10):
                 p1 = arc.point(t)
                 p2 = arc.point(t+step)
-                draw.line((round(p1[0]), -round(p1[1]), round(p2[0]), -round(p2[1])), fill="black")
+                draw.line((round(p1[0]), -round(p1[1]), round(p2[0]), -round(p2[1])), fill="black",  width=3)
                 t += step
     im.save(filename)
 
