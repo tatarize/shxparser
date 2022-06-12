@@ -102,7 +102,6 @@ class ShxFile:
         self.format = None
         self.type = None
         self.version = None
-        self.glyph_bytes = dict()
         self.glyphs = dict()
         self.font_name = "unknown"
         self.font_height = None
@@ -114,7 +113,7 @@ class ShxFile:
         self._parse(filename)
 
     def __str__(self):
-        return f'{self.type}("{self.font_name}", {self.version}, glyphs: {len(self.glyph_bytes)})'
+        return f'{self.type}("{self.font_name}", {self.version}, glyphs: {len(self.glyphs)})'
 
     def _parse(self, filename):
         with open(filename, "br") as f:
@@ -142,7 +141,7 @@ class ShxFile:
         for i in range(count):
             index = read_int_16le(f)
             length = read_int_16le(f)
-            glyph_ref.append((index,length))
+            glyph_ref.append((index, length))
 
         for index, length in glyph_ref:
             if index == 0:
@@ -150,9 +149,9 @@ class ShxFile:
                 self.font_height = read_int_8(f)  # vector lengths above baseline
                 self.font_width = read_int_8(f)  # vector lengths below baseline
                 self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
-                end = read_int_16le(f)
+                # end = read_int_16le(f)
             else:
-                self.glyph_bytes[index] = f.read(length)
+                self.glyphs[index] = f.read(length)
 
     def _parse_bigfont(self, f):
         count = read_int_16le(f)
@@ -179,7 +178,7 @@ class ShxFile:
                 self.font_width = read_int_8(f)  # vector lengths below baseline
                 self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
             else:
-                self.glyph_bytes[index] = f.read(length)[1:]
+                self.glyphs[index] = f.read(length)
 
     def _parse_unifont(self, f):
         count = read_int_32le(f)
@@ -195,8 +194,7 @@ class ShxFile:
         for i in range(count-1):
             index = read_int_16le(f)
             length = read_int_16le(f)
-            self.glyph_bytes[index] = f.read(length)[1:]
-
+            self.glyphs[index] = f.read(length)
 
     def render(self, path, text, horizontal=True):
         skip = False
@@ -206,14 +204,13 @@ class ShxFile:
         stack = []
         for letter in text:
             try:
-                byte_glyph = self.glyph_bytes[ord(letter)]
+                code = bytearray(self.glyphs[ord(letter)])
             except KeyError:
                 # Letter is not found.
                 continue
-            b_glyph = bytearray(byte_glyph)
             pen = False
-            while b_glyph:
-                b = b_glyph.pop(0)
+            while code:
+                b = code.pop(0)
                 direction = b & 0x0f
                 length = (b & 0xf0) >> 4
                 if length == 0:
@@ -227,11 +224,11 @@ class ShxFile:
                         if not skip:
                             pen = False
                     elif direction == DIVIDE_VECTOR:
-                        factor = b_glyph.pop(0)
+                        factor = code.pop(0)
                         if not skip:
                             scale /= factor
                     elif direction == MULTIPLY_VECTOR:
-                        factor = b_glyph.pop(0)
+                        factor = code.pop(0)
                         if not skip:
                             scale *= factor
                     elif direction == PUSH_STACK:
@@ -248,29 +245,29 @@ class ShxFile:
                             path.move(x, y)
                     elif direction == DRAW_SUBSHAPE:
                         if self.type == "shapes":
-                            glyph = b_glyph.pop(0)
+                            subshape = code.pop(0)
                             if not skip:
-                                b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
+                                code = bytearray(self.glyphs[subshape]) + code
                         elif self.type == "bigfont":
-                            glyph = b_glyph.pop(0)
-                            if glyph == 0:
-                                glyph = int_16le([b_glyph.pop(0), b_glyph.pop(0)])
-                                origin_x = b_glyph.pop(0) * scale
-                                origin_y = b_glyph.pop(0) * scale
-                                width = b_glyph.pop(0) * scale
-                                height = b_glyph.pop(0) * scale
+                            subshape = code.pop(0)
+                            if subshape == 0:
+                                subshape = int_16le([code.pop(0), code.pop(0)])
+                                origin_x = code.pop(0) * scale
+                                origin_y = code.pop(0) * scale
+                                width = code.pop(0) * scale
+                                height = code.pop(0) * scale
                             if not skip:
                                 try:
-                                    b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
+                                    code = bytearray(self.glyphs[subshape]) + code
                                 except KeyError:
                                     pass  # TODO: Likely some bug here.
                         elif self.type == "unifont":
-                            glyph = int_16le([b_glyph.pop(0), b_glyph.pop(0)])
+                            subshape = int_16le([code.pop(0), code.pop(0)])
                             if not skip:
-                                b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
+                                code = bytearray(self.glyphs[subshape]) + code
                     elif direction == XY_DISPLACEMENT:
-                        dx = signed8(b_glyph.pop(0)) * scale
-                        dy = signed8(b_glyph.pop(0)) * scale
+                        dx = signed8(code.pop(0)) * scale
+                        dy = signed8(code.pop(0)) * scale
                         if not skip:
                             x += dx
                             y += dy
@@ -280,8 +277,8 @@ class ShxFile:
                                 path.move(x, y)
                     elif direction == POLY_XY_DISPLACEMENT:
                         while True:
-                            dx = signed8(b_glyph.pop(0)) * scale
-                            dy = signed8(b_glyph.pop(0)) * scale
+                            dx = signed8(code.pop(0)) * scale
+                            dy = signed8(code.pop(0)) * scale
                             if dx == 0 and dy == 0:
                                 break
                             if not skip:
@@ -292,8 +289,8 @@ class ShxFile:
                                 else:
                                     path.move(x, y)
                     elif direction == OCTANT_ARC:
-                        radius = b_glyph.pop(0) * scale
-                        sc = signed8(b_glyph.pop(0))
+                        radius = code.pop(0) * scale
+                        sc = signed8(code.pop(0))
                         if not skip:
                             octant = tau / 8.0
                             ccw = (sc >> 7) & 1
@@ -327,10 +324,10 @@ class ShxFile:
                         90° + (28/256 * 45°) = 95°
                         """
                         octant = tau / 8.0
-                        start_offset = octant * b_glyph.pop(0) / 256.0
-                        end_offset = octant * b_glyph.pop(0) / 256.0
-                        radius = (256 * b_glyph.pop(0) + b_glyph.pop(0)) * scale
-                        sc = signed8(b_glyph.pop(0))
+                        start_offset = octant * code.pop(0) / 256.0
+                        end_offset = octant * code.pop(0) / 256.0
+                        radius = (256 * code.pop(0) + code.pop(0)) * scale
+                        sc = signed8(code.pop(0))
                         if not skip:
                             ccw = (sc >> 7) & 1
                             s = (sc >> 4) & 0x7
@@ -353,9 +350,9 @@ class ShxFile:
                             else:
                                 path.move(x, y)
                     elif direction == BULGE_ARC:
-                        dx = signed8(b_glyph.pop(0)) * scale
-                        dy = signed8(b_glyph.pop(0)) * scale
-                        h = signed8(b_glyph.pop(0))
+                        dx = signed8(code.pop(0)) * scale
+                        dy = signed8(code.pop(0)) * scale
+                        h = signed8(code.pop(0))
                         if not skip:
                             r = abs(complex(dx, dy)) / 2
                             bulge = h / 127.0
@@ -375,11 +372,11 @@ class ShxFile:
                                 path.move(x, y)
                     elif direction == POLY_BULGE_ARC:
                         while True:
-                            dx = signed8(b_glyph.pop(0)) * scale
-                            dy = signed8(b_glyph.pop(0)) * scale
+                            dx = signed8(code.pop(0)) * scale
+                            dy = signed8(code.pop(0)) * scale
                             if dx == 0 and dy == 0:
                                 break
-                            h = signed8(b_glyph.pop(0))
+                            h = signed8(code.pop(0))
                             if not skip:
                                 r = abs(complex(dx, dy)) / 2
                                 bulge = h / 127.0
