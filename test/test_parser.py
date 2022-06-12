@@ -40,7 +40,7 @@ class TestParser(unittest.TestCase):
             shx = ShxFile(f)
             print(f"Parsed: {str(shx)} @ {str(f)}")
             paths = ShxPath()
-            shx.render(paths, "hello world", 0)
+            shx.render(paths, "hello world")
             draw(paths, 1000, 100, shx.font_width, shx.font_height, f"{f}.png")
 
 
