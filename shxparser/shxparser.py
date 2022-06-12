@@ -30,10 +30,10 @@ def int_16le(byte):
 
 def int_32le(b):
     return (
-            (b[0] & 0xFF)
-            + ((b[1] & 0xFF) << 8)
-            + ((b[2] & 0xFF) << 16)
-            + ((b[3] & 0xFF) << 24)
+        (b[0] & 0xFF)
+        + ((b[1] & 0xFF) << 8)
+        + ((b[2] & 0xFF) << 16)
+        + ((b[3] & 0xFF) << 24)
     )
 
 
@@ -62,10 +62,10 @@ def read_string(stream):
     bb = bytearray()
     while True:
         b = stream.read(1)
-        if b == b'':
-            return bb.decode('utf-8')
-        if b == b'\r' or b == b'\n' or b == b'\x00':
-            return bb.decode('utf-8')
+        if b == b"":
+            return bb.decode("utf-8")
+        if b == b"\r" or b == b"\n" or b == b"\x00":
+            return bb.decode("utf-8")
         bb += b
 
 
@@ -74,6 +74,7 @@ class ShxPath:
     Example path code. Any class with these functions would work as well. When render is called on the ShxFont class
     the path is given particular useful segments.
     """
+
     def __init__(self):
         self.path = list()
         self.last_x = None
@@ -97,7 +98,7 @@ class ShxPath:
         :param y:
         :return:
         """
-        self.path.append((x,y))
+        self.path.append((x, y))
         self.last_x = x
         self.last_y = y
 
@@ -114,7 +115,7 @@ class ShxPath:
         self.last_x = x
         self.last_y = y
 
-    def arc(self, cx, cy,  x, y):
+    def arc(self, cx, cy, x, y):
         """
         Draw an arc from the current point to specified point going through the control point.
 
@@ -140,12 +141,13 @@ class ShxFont:
     consist of commands in a vector-shape language. When .render() is called on some text, vector actions are performed
     on the font which create the vector path.
     """
+
     def __init__(self, filename):
         self.format = None  # format (usually AutoCAD-86)
         self.type = None  # Font type: shapes, bigfont, unifont
         self.version = None  # Font file version (usually 1.0).
         self.glyphs = dict()  # Glyph dictionary
-        self.font_name = "unknown" # Parsed font name.
+        self.font_name = "unknown"  # Parsed font name.
         self.above = None  # Distance above baseline for capital letters.
         self.below = None  # Distance below baseline for lowercase letters
         self.modes = None  # 0 Horizontal Only, 2 Dual mode (Horizontal or Vertical)
@@ -189,7 +191,8 @@ class ShxFont:
                 self.font_name = read_string(f)
                 self.above = read_int_8(f)  # vector lengths above baseline
                 self.below = read_int_8(f)  # vector lengths below baseline
-                self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
+                # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
+                self.modes = read_int_8(f)
                 # end = read_int_16le(f)
             else:
                 self.glyphs[index] = f.read(length)
@@ -212,12 +215,14 @@ class ShxFont:
             glyph_ref.append((index, length, offset))
 
         for index, length, offset in glyph_ref:
-            f.seek(offset,0)
+            f.seek(offset, 0)
             if index == 0:
                 # self.font_name = read_string(f)
                 self.above = read_int_8(f)  # vector lengths above baseline
                 self.below = read_int_8(f)  # vector lengths below baseline
-                self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
+                # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
+                self.modes = read_int_8(f)
+
             else:
                 self.glyphs[index] = f.read(length)
 
@@ -232,7 +237,7 @@ class ShxFont:
         self.encoding = read_int_8(f)
         self.embedded = read_int_8(f)
         ignore = read_int_8(f)
-        for i in range(count-1):
+        for i in range(count - 1):
             index = read_int_16le(f)
             length = read_int_16le(f)
             self.glyphs[index] = f.read(length)
@@ -252,15 +257,15 @@ class ShxFont:
             pen = False
             while code:
                 b = code.pop()
-                direction = b & 0x0f
-                length = (b & 0xf0) >> 4
+                direction = b & 0x0F
+                length = (b & 0xF0) >> 4
                 if length == 0:
                     if direction == END_OF_SHAPE:
                         path.new_path()
                     elif direction == PEN_DOWN:
                         if not skip:
                             pen = True
-                            path.move(x,y)
+                            path.move(x, y)
                     elif direction == PEN_UP:
                         if not skip:
                             pen = False
@@ -276,13 +281,17 @@ class ShxFont:
                         if not skip:
                             stack.append((x, y))
                             if len(stack) == 4:
-                                raise IndexError(f"Position stack overflow in shape {letter}")
+                                raise IndexError(
+                                    f"Position stack overflow in shape {letter}"
+                                )
                     elif direction == POP_STACK:
                         if not skip:
                             try:
                                 x, y = stack.pop()
                             except IndexError:
-                                raise IndexError(f"Position stack underflow in shape {letter}")
+                                raise IndexError(
+                                    f"Position stack underflow in shape {letter}"
+                                )
                             path.move(x, y)
                     elif direction == DRAW_SUBSHAPE:
                         if self.type == "shapes":
@@ -299,7 +308,9 @@ class ShxFont:
                                 height = code.pop() * scale
                             if not skip:
                                 try:
-                                    code = code + bytearray(reversed(self.glyphs[subshape]))
+                                    code = code + bytearray(
+                                        reversed(self.glyphs[subshape])
+                                    )
                                 except KeyError:
                                     pass  # TODO: Likely some bug here.
                         elif self.type == "unifont":
@@ -441,13 +452,13 @@ class ShxFont:
                             continue
                 else:
                     if not skip:
-                        if direction in (2, 1, 0, 0xf, 0xe):
+                        if direction in (2, 1, 0, 0xF, 0xE):
                             dx = 1.0
-                        elif direction in (3, 0xd):
+                        elif direction in (3, 0xD):
                             dx = 0.5
-                        elif direction in (4, 0xc):
+                        elif direction in (4, 0xC):
                             dx = 0.0
-                        elif direction in (5, 0xb):
+                        elif direction in (5, 0xB):
                             dx = -0.5
                         else:  # (6, 7, 8, 9, 0xa):
                             dx = -1.0
