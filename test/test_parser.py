@@ -4,7 +4,7 @@ from itertools import chain
 
 from svgelements import Arc
 
-from shxparser.shxparser import ShxFile, ShxPath
+from shxparser.shxparser import ShxFont, ShxPath
 
 
 def draw(paths, w, h, fw, fh, filename="test.png"):
@@ -45,9 +45,9 @@ class TestParser(unittest.TestCase):
 
     def test_parse(self):
         for f in chain(glob("parse/*.SHX"), glob("parse/*.shx")):
-            shx = ShxFile(f)
+            shx = ShxFont(f)
             paths = ShxPath()
             shx.render(paths, "the quick brown fox jumps over the lazy cow")
-            draw(paths, 1000, 100, shx.font_width, shx.font_height, f"{f}.png")
+            draw(paths, 1000, 100, shx.below, shx.above, f"{f}.png")
 
 

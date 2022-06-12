@@ -70,47 +70,87 @@ def read_string(stream):
 
 
 class ShxPath:
+    """
+    Example path code. Any class with these functions would work as well. When render is called on the ShxFont class
+    the path is given particular useful segments.
+    """
     def __init__(self):
         self.path = list()
         self.last_x = None
         self.last_y = None
 
     def new_path(self):
+        """
+        Start of a new path.
+
+        :return:
+        """
         self.path.append(None)
         self.last_x = None
         self.last_y = None
 
     def move(self, x, y):
+        """
+        Move current point to the point specified.
+
+        :param x:
+        :param y:
+        :return:
+        """
         self.path.append((x,y))
         self.last_x = x
         self.last_y = y
 
     def line(self, x, y):
+        """
+        Draw a line from the current point to the specified point.
+
+        :param x:
+        :param y:
+        :return:
+        """
         if self.last_x is not None or self.last_y is not None:
             self.path.append((self.last_x, self.last_y, x, y))
         self.last_x = x
         self.last_y = y
 
     def arc(self, cx, cy,  x, y):
+        """
+        Draw an arc from the current point to specified point going through the control point.
+
+        3 Points define a circular arc, there is only one arc which travels from start to end going through a given
+        control point. The exceptions are when the arc points are colinear or two arc points are coincident. In some
+        cases the start and end points will be equal and the control point will be located the circle diameter away.
+
+        :param cx: control_point x
+        :param cy: control_point y
+        :param x: end arc point x
+        :param y: end arc point y
+        :return:
+        """
         if self.last_x is not None or self.last_y is not None:
             self.path.append((self.last_x, self.last_y, cx, cy, x, y))
         self.last_x = x
         self.last_y = y
 
 
-class ShxFile:
+class ShxFont:
+    """
+    This class performs the parsing of the three major types of .SHX fonts. Composing them into specific glyphs which
+    consist of commands in a vector-shape language. When .render() is called on some text, vector actions are performed
+    on the font which create the vector path.
+    """
     def __init__(self, filename):
-        self.format = None
-        self.type = None
-        self.version = None
-        self.glyphs = dict()
-        self.font_name = "unknown"
-        self.font_height = None
-        self.font_width = None
-        self.modes = None
-        self.unicode = False
-        self.embedded = False
-        self._stack = []
+        self.format = None  # format (usually AutoCAD-86)
+        self.type = None  # Font type: shapes, bigfont, unifont
+        self.version = None  # Font file version (usually 1.0).
+        self.glyphs = dict()  # Glyph dictionary
+        self.font_name = "unknown" # Parsed font name.
+        self.above = None  # Distance above baseline for capital letters.
+        self.below = None  # Distance below baseline for lowercase letters
+        self.modes = None  # 0 Horizontal Only, 2 Dual mode (Horizontal or Vertical)
+        self.encoding = False  # 0 unicode, 1 packed multibyte, 2 shape file
+        self.embedded = False  # 0 font can be embedded, 1 font cannot be embedded, 2 embedding is read-only
         self._parse(filename)
 
     def __str__(self):
@@ -147,8 +187,8 @@ class ShxFile:
         for index, length in glyph_ref:
             if index == 0:
                 self.font_name = read_string(f)
-                self.font_height = read_int_8(f)  # vector lengths above baseline
-                self.font_width = read_int_8(f)  # vector lengths below baseline
+                self.above = read_int_8(f)  # vector lengths above baseline
+                self.below = read_int_8(f)  # vector lengths below baseline
                 self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
                 # end = read_int_16le(f)
             else:
@@ -175,8 +215,8 @@ class ShxFile:
             f.seek(offset,0)
             if index == 0:
                 # self.font_name = read_string(f)
-                self.font_height = read_int_8(f)  # vector lengths above baseline
-                self.font_width = read_int_8(f)  # vector lengths below baseline
+                self.above = read_int_8(f)  # vector lengths above baseline
+                self.below = read_int_8(f)  # vector lengths below baseline
                 self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
             else:
                 self.glyphs[index] = f.read(length)
@@ -186,10 +226,10 @@ class ShxFile:
         length = read_int_16le(f)
         f.seek(5)
         self.font_name = read_string(f)
-        self.font_height = read_int_8(f)
-        self.font_width = read_int_8(f)
+        self.above = read_int_8(f)
+        self.below = read_int_8(f)
         self.mode = read_int_8(f)
-        self.unicode = read_int_8(f)
+        self.encoding = read_int_8(f)
         self.embedded = read_int_8(f)
         ignore = read_int_8(f)
         for i in range(count-1):
@@ -235,7 +275,7 @@ class ShxFile:
                     elif direction == PUSH_STACK:
                         if not skip:
                             stack.append((x, y))
-                            if len(self._stack) == 4:
+                            if len(stack) == 4:
                                 raise IndexError(f"Position stack overflow in shape {letter}")
                     elif direction == POP_STACK:
                         if not skip:
