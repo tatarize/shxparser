@@ -1,5 +1,8 @@
 from math import tau, cos, sin, atan2
 
+SHXPARSER_VERSION = "0.0.1"
+
+
 END_OF_SHAPE = 0
 PEN_DOWN = 1
 PEN_UP = 2
