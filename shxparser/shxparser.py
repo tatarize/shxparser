@@ -81,8 +81,6 @@ class ShxPath:
     def new_path(self):
         """
         Start of a new path.
-
-        :return:
         """
         self.path.append(None)
 
@@ -105,12 +103,6 @@ class ShxPath:
         3 Points define a circular arc, there is only one arc which travels from start to end going through a given
         control point. The exceptions are when the arc points are colinear or two arc points are coincident. In some
         cases the start and end points will be equal and the control point will be located the circle diameter away.
-
-        :param cx: control_point x
-        :param cy: control_point y
-        :param x: end arc point x
-        :param y: end arc point y
-        :return:
         """
         self.path.append((x0, y0, cx, cy, x1, y1))
 
