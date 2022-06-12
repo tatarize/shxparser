@@ -8,9 +8,9 @@ This format is used for many CNC and laser operations.
 
 ---
 
-# Progress (Planning)
+# Progress
 
-Things currently parse but, do not actually produce correct results. Also, very little has been done to check the `bigfont` and `unifont` types.
+Things currently parse, text converts to paths. There may be edge cases and bugs within the code.
 
 # Encoding
 Calling the parser on a `SHX` file will parse the file. The glyph data is accessed via the `ShxFile.glyphs` dictionary which stores the particular commands.
@@ -19,7 +19,17 @@ These positions are stored (or will be) in segments. Each segment is:
 * `((x0,y0), (x1, y1))` --- Straight Line start->end
 * `((x0,y0), (cx, cy), (x1, y1))` --- Arc start->control->end where control is a point on the arc that starts at start and ends at end.
 
-Or something like that, I haven't really decided or figured it out yet.
+# Usage
+
+See `test_parser.py` for usage:
+```python
+    def test_parse(self):
+        for f in chain(glob("parse/*.SHX"), glob("parse/*.shx")):
+            shx = ShxFont(f)
+            paths = ShxPath()
+            shx.render(paths, "The quick brown fox jumps over the lazy dog", font_size=50)
+            draw(paths, 2000, 100, 50, f"{f}.png")
+```
 
 # Format
 

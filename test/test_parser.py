@@ -47,7 +47,7 @@ class TestParser(unittest.TestCase):
         for f in chain(glob("parse/*.SHX"), glob("parse/*.shx")):
             shx = ShxFont(f)
             paths = ShxPath()
-            shx.render(paths, "The quick brown Fox Jumps over the lazy dog", font_size=50)
+            shx.render(paths, "The quick brown fox jumps over the lazy dog", font_size=50)
             draw(paths, 2000, 100, 50, f"{f}.png")
 
 
