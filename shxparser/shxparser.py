@@ -43,6 +43,7 @@ def read_int_8(stream):
         return byte[0]
     return None
 
+
 def read_int_16le(stream):
     byte = bytearray(stream.read(2))
     if len(byte) == 2:
@@ -204,13 +205,13 @@ class ShxFile:
         stack = []
         for letter in text:
             try:
-                code = bytearray(self.glyphs[ord(letter)])
+                code = bytearray(reversed(self.glyphs[ord(letter)]))
             except KeyError:
                 # Letter is not found.
                 continue
             pen = False
             while code:
-                b = code.pop(0)
+                b = code.pop()
                 direction = b & 0x0f
                 length = (b & 0xf0) >> 4
                 if length == 0:
@@ -224,11 +225,11 @@ class ShxFile:
                         if not skip:
                             pen = False
                     elif direction == DIVIDE_VECTOR:
-                        factor = code.pop(0)
+                        factor = code.pop()
                         if not skip:
                             scale /= factor
                     elif direction == MULTIPLY_VECTOR:
-                        factor = code.pop(0)
+                        factor = code.pop()
                         if not skip:
                             scale *= factor
                     elif direction == PUSH_STACK:
@@ -245,29 +246,29 @@ class ShxFile:
                             path.move(x, y)
                     elif direction == DRAW_SUBSHAPE:
                         if self.type == "shapes":
-                            subshape = code.pop(0)
+                            subshape = code.pop()
                             if not skip:
-                                code = bytearray(self.glyphs[subshape]) + code
+                                code = code + bytearray(reversed(self.glyphs[subshape]))
                         elif self.type == "bigfont":
-                            subshape = code.pop(0)
+                            subshape = code.pop()
                             if subshape == 0:
-                                subshape = int_16le([code.pop(0), code.pop(0)])
-                                origin_x = code.pop(0) * scale
-                                origin_y = code.pop(0) * scale
-                                width = code.pop(0) * scale
-                                height = code.pop(0) * scale
+                                subshape = int_16le([code.pop(), code.pop()])
+                                origin_x = code.pop() * scale
+                                origin_y = code.pop() * scale
+                                width = code.pop() * scale
+                                height = code.pop() * scale
                             if not skip:
                                 try:
-                                    code = bytearray(self.glyphs[subshape]) + code
+                                    code = code + bytearray(reversed(self.glyphs[subshape]))
                                 except KeyError:
                                     pass  # TODO: Likely some bug here.
                         elif self.type == "unifont":
-                            subshape = int_16le([code.pop(0), code.pop(0)])
+                            subshape = int_16le([code.pop(), code.pop()])
                             if not skip:
-                                code = bytearray(self.glyphs[subshape]) + code
+                                code = code + bytearray(reversed(self.glyphs[subshape]))
                     elif direction == XY_DISPLACEMENT:
-                        dx = signed8(code.pop(0)) * scale
-                        dy = signed8(code.pop(0)) * scale
+                        dx = signed8(code.pop()) * scale
+                        dy = signed8(code.pop()) * scale
                         if not skip:
                             x += dx
                             y += dy
@@ -277,8 +278,8 @@ class ShxFile:
                                 path.move(x, y)
                     elif direction == POLY_XY_DISPLACEMENT:
                         while True:
-                            dx = signed8(code.pop(0)) * scale
-                            dy = signed8(code.pop(0)) * scale
+                            dx = signed8(code.pop()) * scale
+                            dy = signed8(code.pop()) * scale
                             if dx == 0 and dy == 0:
                                 break
                             if not skip:
@@ -289,8 +290,8 @@ class ShxFile:
                                 else:
                                     path.move(x, y)
                     elif direction == OCTANT_ARC:
-                        radius = code.pop(0) * scale
-                        sc = signed8(code.pop(0))
+                        radius = code.pop() * scale
+                        sc = signed8(code.pop())
                         if not skip:
                             octant = tau / 8.0
                             ccw = (sc >> 7) & 1
@@ -324,10 +325,10 @@ class ShxFile:
                         90° + (28/256 * 45°) = 95°
                         """
                         octant = tau / 8.0
-                        start_offset = octant * code.pop(0) / 256.0
-                        end_offset = octant * code.pop(0) / 256.0
-                        radius = (256 * code.pop(0) + code.pop(0)) * scale
-                        sc = signed8(code.pop(0))
+                        start_offset = octant * code.pop() / 256.0
+                        end_offset = octant * code.pop() / 256.0
+                        radius = (256 * code.pop() + code.pop()) * scale
+                        sc = signed8(code.pop())
                         if not skip:
                             ccw = (sc >> 7) & 1
                             s = (sc >> 4) & 0x7
@@ -350,9 +351,9 @@ class ShxFile:
                             else:
                                 path.move(x, y)
                     elif direction == BULGE_ARC:
-                        dx = signed8(code.pop(0)) * scale
-                        dy = signed8(code.pop(0)) * scale
-                        h = signed8(code.pop(0))
+                        dx = signed8(code.pop()) * scale
+                        dy = signed8(code.pop()) * scale
+                        h = signed8(code.pop())
                         if not skip:
                             r = abs(complex(dx, dy)) / 2
                             bulge = h / 127.0
@@ -372,11 +373,11 @@ class ShxFile:
                                 path.move(x, y)
                     elif direction == POLY_BULGE_ARC:
                         while True:
-                            dx = signed8(code.pop(0)) * scale
-                            dy = signed8(code.pop(0)) * scale
+                            dx = signed8(code.pop()) * scale
+                            dy = signed8(code.pop()) * scale
                             if dx == 0 and dy == 0:
                                 break
-                            h = signed8(code.pop(0))
+                            h = signed8(code.pop())
                             if not skip:
                                 r = abs(complex(dx, dy)) / 2
                                 bulge = h / 127.0
