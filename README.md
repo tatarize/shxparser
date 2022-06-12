@@ -31,6 +31,8 @@ See `test_parser.py` for usage:
             draw(paths, 2000, 100, 50, f"{f}.png")
 ```
 
+![SCRIPTS8 SHX](https://user-images.githubusercontent.com/3302478/173228169-27c914e1-0f2e-4125-85d9-e063e9ca28fb.png)
+
 # Format
 
 For some format descriptions and explanations see:
