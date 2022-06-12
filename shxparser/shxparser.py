@@ -307,7 +307,7 @@ class ShxFile:
                                 bulge_angle = atan2(dy, dx) - tau / 4
                                 mx = bx + r * bulge * cos(bulge_angle)
                                 my = by + r * bulge * sin(bulge_angle)
-                                x += dx  # (5,40) -> (55,40) c = 30,65, r 25
+                                x += dx
                                 y += dy
                                 if pen:
                                     if bulge == 0:
