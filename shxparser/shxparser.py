@@ -77,8 +77,6 @@ class ShxPath:
 
     def __init__(self):
         self.path = list()
-        self.last_x = None
-        self.last_y = None
 
     def new_path(self):
         """
@@ -87,35 +85,20 @@ class ShxPath:
         :return:
         """
         self.path.append(None)
-        self.last_x = None
-        self.last_y = None
 
     def move(self, x, y):
         """
         Move current point to the point specified.
-
-        :param x:
-        :param y:
-        :return:
         """
         self.path.append((x, y))
-        self.last_x = x
-        self.last_y = y
 
-    def line(self, x, y):
+    def line(self, x0, y0, x1, y1):
         """
         Draw a line from the current point to the specified point.
-
-        :param x:
-        :param y:
-        :return:
         """
-        if self.last_x is not None or self.last_y is not None:
-            self.path.append((self.last_x, self.last_y, x, y))
-        self.last_x = x
-        self.last_y = y
+        self.path.append((x0, y0, x1, y1))
 
-    def arc(self, cx, cy, x, y):
+    def arc(self, x0, y0, cx, cy, x1, y1):
         """
         Draw an arc from the current point to specified point going through the control point.
 
@@ -129,10 +112,7 @@ class ShxPath:
         :param y: end arc point y
         :return:
         """
-        if self.last_x is not None or self.last_y is not None:
-            self.path.append((self.last_x, self.last_y, cx, cy, x, y))
-        self.last_x = x
-        self.last_y = y
+        self.path.append((x0, y0, cx, cy, x1, y1))
 
 
 class ShxFont:
@@ -246,6 +226,8 @@ class ShxFont:
         skip = False
         x = 0
         y = 0
+        last_x = 0
+        last_y = 0
         scale = font_size / self.above
         stack = []
         for letter in text:
@@ -254,7 +236,7 @@ class ShxFont:
             except KeyError:
                 # Letter is not found.
                 continue
-            pen = False
+            pen = True
             while code:
                 b = code.pop()
                 direction = b & 0x0F
@@ -293,6 +275,7 @@ class ShxFont:
                                     f"Position stack underflow in shape {letter}"
                                 )
                             path.move(x, y)
+                            last_x, last_y = x, y
                     elif direction == DRAW_SUBSHAPE:
                         if self.type == "shapes":
                             subshape = code.pop()
@@ -324,9 +307,10 @@ class ShxFont:
                             x += dx
                             y += dy
                             if pen:
-                                path.line(x, y)
+                                path.line(last_x, last_y, x, y)
                             else:
                                 path.move(x, y)
+                            last_x, last_y = x, y
                     elif direction == POLY_XY_DISPLACEMENT:
                         while True:
                             dx = signed8(code.pop()) * scale
@@ -337,9 +321,10 @@ class ShxFont:
                                 x += dx
                                 y += dy
                                 if pen:
-                                    path.line(x, y)
+                                    path.line(last_x, last_y, x, y)
                                 else:
                                     path.move(x, y)
+                                last_x, last_y = x, y
                     elif direction == OCTANT_ARC:
                         radius = code.pop() * scale
                         sc = signed8(code.pop())
@@ -363,9 +348,10 @@ class ShxFont:
                             x = cx + radius * cos(end_angle)
                             y = cy + radius * sin(end_angle)
                             if pen:
-                                path.arc(mx, my, x, y)
+                                path.arc(last_x, last_y, mx, my, x, y)
                             else:
                                 path.move(x, y)
+                            last_x, last_y = x, y
                     elif direction == FRACTIONAL_ARC:
                         """
                         Fractional Arc.
@@ -398,9 +384,10 @@ class ShxFont:
                             x = cx + radius * cos(end_angle)
                             y = cy + radius * sin(end_angle)
                             if pen:
-                                path.arc(mx, my, x, y)
+                                path.arc(last_x, last_y, mx, my, x, y)
                             else:
                                 path.move(x, y)
+                            last_x, last_y = x, y
                     elif direction == BULGE_ARC:
                         dx = signed8(code.pop()) * scale
                         dy = signed8(code.pop()) * scale
@@ -419,9 +406,10 @@ class ShxFont:
                                 if bulge == 0:
                                     path.line(x, y)
                                 else:
-                                    path.arc(mx, my, x, y)
+                                    path.arc(last_x, last_y, mx, my, x, y)
                             else:
                                 path.move(x, y)
+                            last_x, last_y = x, y
                     elif direction == POLY_BULGE_ARC:
                         while True:
                             dx = signed8(code.pop()) * scale
@@ -441,11 +429,12 @@ class ShxFont:
                                 y += dy
                                 if pen:
                                     if bulge == 0:
-                                        path.line(x, y)
+                                        path.line(last_x, last_y, x, y)
                                     else:
-                                        path.arc(mx, my, x, y)
+                                        path.arc(last_x, last_y, mx, my, x, y)
                                 else:
                                     path.move(x, y)
+                                last_x, last_y = x, y
                     elif direction == COND_MODE_2:
                         if self.modes == 2 and horizontal:
                             skip = True
@@ -475,7 +464,8 @@ class ShxFont:
                         x += dx * length * scale
                         y += dy * length * scale
                         if pen:
-                            path.line(x, y)
+                            path.line(last_x, last_y, x, y)
                         else:
                             path.move(x, y)
+                        last_x, last_y = x, y
                 skip = False
