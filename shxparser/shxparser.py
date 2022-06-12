@@ -222,18 +222,16 @@ class ShxFile:
                                 c = 8
                             if ccw:
                                 s = -s
-                            start_angle = c * octant
+                            start_angle = s * octant
                             end_angle = (c + s) * octant
                             mid_angle = (start_angle + end_angle) / 2
                             # negative radius in the direction of start_octent finds center.
-                            cx = -radius * cos(start_angle)
-                            cy = -radius * sin(start_angle)
+                            cx = x - radius * cos(start_angle)
+                            cy = y - radius * sin(start_angle)
                             mx = cx + radius * cos(mid_angle)
                             my = cy + radius * sin(mid_angle)
-                            dx = cx + radius * cos(end_angle)
-                            dy = cy + radius * sin(end_angle)
-                            x += dx
-                            y += dy
+                            x = cx + radius * cos(end_angle)
+                            y = cy + radius * sin(end_angle)
                             if pen:
                                 path.arc(mx, my, x, y)
                             else:
@@ -260,7 +258,7 @@ class ShxFile:
                                 c = 8
                             if ccw:
                                 s = -s
-                            start_angle = start_offset + (c * octant)
+                            start_angle = start_offset + (s * octant)
                             end_angle = (c + s) * octant + end_offset
                             mid_angle = (start_angle + end_angle) / 2
                             cx = x - radius * cos(start_angle)
