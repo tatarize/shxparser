@@ -69,6 +69,35 @@ def read_string(stream):
         bb += b
 
 
+class ShxPath:
+    def __init__(self):
+        self.path = list()
+        self.last_x = None
+        self.last_y = None
+
+    def new_path(self):
+        self.path.append(None)
+        self.last_x = None
+        self.last_y = None
+
+    def move(self, x, y):
+        self.path.append((x,y))
+        self.last_x = x
+        self.last_y = y
+
+    def line(self, x, y):
+        if self.last_x is not None or self.last_y is not None:
+            self.path.append((self.last_x, self.last_y, x, y))
+        self.last_x = x
+        self.last_y = y
+
+    def arc(self, cx, cy,  x, y):
+        if self.last_x is not None or self.last_y is not None:
+            self.path.append((self.last_x, self.last_y, cx, cy, x, y))
+        self.last_x = x
+        self.last_y = y
+
+
 class ShxFile:
     def __init__(self, filename):
         self.format = None
@@ -86,7 +115,201 @@ class ShxFile:
         self._parse(filename)
 
     def __str__(self):
-        return f'{self.type}("{self.font_name}", {self.version}, glyphs: {len(self.glyphs)})'
+        return f'{self.type}("{self.font_name}", {self.version}, glyphs: {len(self.glyph_bytes)})'
+
+    def render(self, path, text, direction):
+        skip = False
+        x = 0
+        y = 0
+        scale = 1.0
+        stack = []
+        for letter in text:
+            try:
+                byte_glyph = self.glyph_bytes[ord(letter)]
+            except KeyError:
+                # Letter is not found.
+                continue
+            b_glyph = bytearray(byte_glyph)
+            pen = False
+            while b_glyph:
+                b = b_glyph.pop(0)
+                direction = b & 0x0f
+                length = (b & 0xf0) >> 4
+                if length == 0:
+                    if direction == END_OF_SHAPE:
+                        path.new_path()
+                    elif direction == PEN_DOWN:
+                        pen = True
+                        path.move(x,y)
+                    elif direction == PEN_UP:
+                        pen = False
+                    elif direction == DIVIDE_VECTOR:
+                        scale /= b_glyph.pop(0)
+                    elif direction == MULTIPLY_VECTOR:
+                        scale *= b_glyph.pop(0)
+                    elif direction == PUSH_STACK:
+                        stack.append((x, y))
+                        if len(self._stack) == 4:
+                            raise IndexError(f"Position stack overflow in shape {letter}")
+                    elif direction == POP_STACK:
+                        try:
+                            x, y = stack.pop()
+                        except IndexError:
+                            raise IndexError(f"Position stack underflow in shape {letter}")
+                        path.move(x, y)
+                    elif direction == DRAW_SUBSHAPE:
+                        if self.type == "shapes":
+                            glyph = b_glyph.pop(0)
+                            b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
+                        elif self.type == "bigfont":
+                            glyph = b_glyph.pop(0)
+                            if glyph == 0:
+                                glyph = int_16le([b_glyph.pop(0), b_glyph.pop(0)])
+                                origin_x = b_glyph.pop(0) * scale
+                                origin_y = b_glyph.pop(0) * scale
+                                width = b_glyph.pop(0) * scale
+                                height = b_glyph.pop(0) * scale
+                            try:
+                                b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
+                            except KeyError:
+                                pass  # TODO: Likely some bug here.
+                        elif self.type == "unifont":
+                            glyph = int_16le([b_glyph.pop(0), b_glyph.pop(0)])
+                            b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
+                    elif direction == XY_DISPLACEMENT:
+                        dx = signed8(b_glyph.pop(0))
+                        dy = signed8(b_glyph.pop(0))
+                        x += dx * scale
+                        y += dy * scale
+                        if pen:
+                            path.line(x, y)
+                        else:
+                            path.move(x, y)
+                    elif direction == POLY_XY_DISPLACEMENT:
+                        while True:
+                            dx = signed8(b_glyph.pop(0))
+                            dy = signed8(b_glyph.pop(0))
+                            if dx == 0 and dy == 0:
+                                break
+                            x += dx * scale
+                            y += dy * scale
+                            if pen:
+                                path.line(x, y)
+                            else:
+                                path.move(x, y)
+                    elif direction == OCTANT_ARC:
+                        octant = tau / 8.0
+                        radius = b_glyph.pop(0)
+                        sc = signed8(b_glyph.pop(0))
+                        ccw = (sc >> 7) & 1
+                        start = (sc >> 4) & 0x7
+                        span = sc & 0x7
+                        if span == 0:
+                            span = 8
+                        if ccw:
+                            start = -start
+                        start_octent = span * tau / 8.0
+                        end_octent = start_octent + start
+                        cx = -radius * cos(start_octent)
+                        cy = -radius * sin(start_octent)
+                        dx = cx + radius * cos(end_octent)
+                        dy = cy + radius * sin(end_octent)
+                        x += dx * scale
+                        y += dy * scale
+                        if pen:
+                            path.line(x, y)
+                        else:
+                            path.move(x, y)
+                    elif direction == FRACTIONAL_ARC:
+                        """
+                        Fractional Arc.
+                        Octant Arc plus fractional bits 0-255 parts of 45°
+                        55° -> (55 - 45) * (256 / 45) = 56 (octent 1)
+                        45° + (56/256 * 45°) = 55°
+                        95° -> (95 - 90) * (256 / 45) = 28 (octent 2)
+                        90° + (28/256 * 45°) = 95°
+                        """
+                        octant = tau / 8.0
+                        start_offset = octant * b_glyph.pop(0) / 256.0
+                        end_offset = octant * b_glyph.pop(0) / 256.0
+                        radius = 256 * b_glyph.pop(0) + b_glyph.pop(0)
+                        sc = signed8(b_glyph.pop(0))
+                        ccw = sc >= 0
+                        sweep = (sc >> 4) & 0x7
+                        sweep *= octant
+                        c = sc & 0x7
+                        if c == 0:
+                            c = 8
+                        if ccw:
+                            sweep = -sweep
+                        start_angle = start_offset + (c * octant)
+                        end_angle = start_angle + sweep + end_offset
+                        cx = -radius * cos(start_angle)
+                        cy = -radius * sin(start_angle)
+                        dx = cx + radius * cos(end_angle)
+                        dy = cy + radius * sin(end_angle)
+                        x += dx * scale
+                        y += dy * scale
+                        if pen:
+                            path.line(x, y)
+                        else:
+                            path.move(x, y)
+                    elif direction == BULGE_ARC:
+                        dx = signed8(b_glyph.pop(0))
+                        dy = signed8(b_glyph.pop(0))
+                        h = signed8(b_glyph.pop(0))
+                        bulge = h / 127.0
+                        x += dx * scale
+                        y += dy * scale
+                        if pen:
+                            path.line(x, y)
+                        else:
+                            path.move(x, y)
+                    elif direction == POLY_BULGE_ARC:
+                        while True:
+                            dx = signed8(b_glyph.pop(0))
+                            dy = signed8(b_glyph.pop(0))
+                            if dx == 0 and dy == 0:
+                                break
+                            h = signed8(b_glyph.pop(0))
+                            bulge = h / 127.0
+                            x += dx * scale
+                            y += dy * scale
+                            if pen:
+                                path.line(x, y)
+                            else:
+                                path.move(x, y)
+                    elif direction == COND_MODE_2:
+                        if self.modes == 2 and direction == 1:
+                            skip = True
+                else:
+                    if direction in (2, 1, 0, 0xf, 0xe):
+                        dx = 1.0
+                    elif direction in (3, 0xd):
+                        dx = 0.5
+                    elif direction in (4, 0xc):
+                        dx = 0.0
+                    elif direction in (5, 0xb):
+                        dx = -0.5
+                    else:  # (6, 7, 8, 9, 0xa):
+                        dx = -1.0
+                    if direction in (6, 5, 4, 3, 2):
+                        dy = 1.0
+                    elif direction in (7, 1):
+                        dy = 0.5
+                    elif direction in (8, 0):
+                        dy = 0.0
+                    elif direction in (9, 0xF):
+                        dy = -0.5
+                    else:  # (0xa, 0xb, 0xc, 0xd, 0xe, 0xf):
+                        dy = -1.0
+                    x += dx * length * scale
+                    y += dy * length * scale
+                    if pen:
+                        path.line(x, y)
+                    else:
+                        path.move(x, y)
+                skip = False
 
     def _parse_header(self, f):
         header = read_string(f)
@@ -115,8 +338,6 @@ class ShxFile:
                 end = read_int_16le(f)
             else:
                 self.glyph_bytes[index] = f.read(length)
-        for b in self.glyph_bytes:
-            self.glyphs[b] = self._parse_glyph(self.glyph_bytes[b], b)
 
     def _parse_bigfont(self, f):
         count = read_int_16le(f)
@@ -144,8 +365,6 @@ class ShxFile:
                 self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
             else:
                 self.glyph_bytes[index] = f.read(length)[1:]
-        for b in self.glyph_bytes:
-            self.glyphs[b] = self._parse_glyph(self.glyph_bytes[b], b)
 
     def _parse_unifont(self, f):
         count = read_int_32le(f)
@@ -162,245 +381,6 @@ class ShxFile:
             index = read_int_16le(f)
             length = read_int_16le(f)
             self.glyph_bytes[index] = f.read(length)[1:]
-        for b in self.glyph_bytes:
-            self.glyphs[b] = self._parse_glyph(self.glyph_bytes[b], b)
-
-    def _parse_glyph(self, byte_glyph, glyph_index):
-        b_glyph = bytearray(byte_glyph)
-        x = 0
-        y = 0
-        last_x = None
-        last_y = None
-        scale = 1.0
-        segments = list()
-        pen = False
-        while b_glyph:
-            b = b_glyph.pop(0)
-            direction = b & 0x0f
-            length = (b & 0xf0) >> 4
-            if length == 0:
-                if direction == END_OF_SHAPE:
-                    return segments
-                elif direction == PEN_DOWN:
-                    pen = True
-                    segments.append((x, y))
-                    last_x, last_y = x, y
-                    continue
-                elif direction == PEN_UP:
-                    pen = False
-                    last_x, last_y = x, y
-                    continue
-                elif direction == DIVIDE_VECTOR:
-                    scale /= b_glyph.pop(0)
-                    continue
-                elif direction == MULTIPLY_VECTOR:
-                    scale *= b_glyph.pop(0)
-                    continue
-                elif direction == PUSH_STACK:
-                    self._stack.append((x, y))
-                    # if len(self._stack) == 4:
-                    #     raise IndexError(f"Position stack overflow in shape {chr(glyph_index)}")
-                    last_x, last_y = x, y
-                    continue
-                elif direction == POP_STACK:
-                    try:
-                        x, y = self._stack.pop()
-                    except IndexError:
-                        raise IndexError(f"Position stack underflow in shape {chr(glyph_index)}")
-                    if pen:
-                        segments.append((x, y))
-                    else:
-                        segments.append((x, y))
-                    last_x, last_y = x, y
-                    continue
-                elif direction == DRAW_SUBSHAPE:
-                    if self.type == "shapes":
-                        glyph = b_glyph.pop(0)
-                        b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
-                    elif self.type == "bigfont":
-                        glyph = b_glyph.pop(0)
-                        if glyph == 0:
-                            glyph = int_16le([b_glyph.pop(0), b_glyph.pop(0)])
-                            origin_x = b_glyph.pop(0) * scale
-                            origin_y = b_glyph.pop(0) * scale
-                            width = b_glyph.pop(0) * scale
-                            height = b_glyph.pop(0) * scale
-                        try:
-                            b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
-                        except KeyError:
-                            pass # TODO: Likely some bug here.
-                    elif self.type == "unifont":
-                        glyph = int_16le([b_glyph.pop(0), b_glyph.pop(0)])
-                        b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
-                    continue
-                elif direction == XY_DISPLACEMENT:
-                    dx = signed8(b_glyph.pop(0))
-                    dy = signed8(b_glyph.pop(0))
-                    x += dx * scale
-                    y += dy * scale
-                    if pen:
-                        if last_x is None or last_y is None:
-                            print("Fail")
-                        else:
-                            segments.append((last_x, last_y, x, y))
-                    else:
-                        segments.append((x, y))
-                    last_x, last_y = x, y
-                    continue
-                elif direction == POLY_XY_DISPLACEMENT:
-                    while True:
-                        dx = signed8(b_glyph.pop(0))
-                        dy = signed8(b_glyph.pop(0))
-                        if dx == 0 and dy == 0:
-                            break
-                        x += dx * scale
-                        y += dy * scale
-                        if pen:
-                            if last_x is None or last_y is None:
-                                print("Fail")
-                            else:
-                                segments.append((last_x, last_y, x, y))
-                        else:
-                            segments.append((x, y))
-                        last_x, last_y = x, y
-                    continue
-                elif direction == OCTANT_ARC:
-                    octant = tau / 8.0
-                    radius = b_glyph.pop(0)
-                    sc = signed8(b_glyph.pop(0))
-                    ccw = (sc >> 7) & 1
-                    start = (sc >> 4) & 0x7
-                    span = sc & 0x7
-                    if span == 0:
-                        span = 8
-                    if ccw:
-                        start = -start
-                    start_octent = span * tau / 8.0
-                    end_octent = start_octent + start
-                    cx = -radius * cos(start_octent)
-                    cy = -radius * sin(start_octent)
-                    dx = cx + radius * cos(end_octent)
-                    dy = cy + radius * sin(end_octent)
-                    x += dx * scale
-                    y += dy * scale
-                    if pen:
-                        if last_x is None or last_y is None:
-                            print("Fail")
-                        else:
-                            segments.append((last_x, last_y, x, y))
-                    else:
-                        segments.append((x, y))
-                    last_x, last_y = x, y
-                    continue
-                elif direction == FRACTIONAL_ARC:
-                    """
-                    Fractional Arc.
-                    Octant Arc plus fractional bits 0-255 parts of 45°
-                    55° -> (55 - 45) * (256 / 45) = 56 (octent 1)
-                    45° + (56/256 * 45°) = 55°
-                    95° -> (95 - 90) * (256 / 45) = 28 (octent 2)
-                    90° + (28/256 * 45°) = 95°
-                    """
-                    octant = tau / 8.0
-                    start_offset = octant * b_glyph.pop(0) / 256.0
-                    end_offset = octant * b_glyph.pop(0) / 256.0
-                    radius = 256 * b_glyph.pop(0) + b_glyph.pop(0)
-                    sc = signed8(b_glyph.pop(0))
-                    ccw = sc >= 0
-                    sweep = (sc >> 4) & 0x7
-                    sweep *= octant
-                    c = sc & 0x7
-                    if c == 0:
-                        c = 8
-                    if ccw:
-                        sweep = -sweep
-                    start_angle = start_offset + (c * octant)
-                    end_angle = start_angle + sweep + end_offset
-                    cx = -radius * cos(start_angle)
-                    cy = -radius * sin(start_angle)
-                    dx = cx + radius * cos(end_angle)
-                    dy = cy + radius * sin(end_angle)
-                    x += dx * scale
-                    y += dy * scale
-                    if pen:
-                        if last_x is None or last_y is None:
-                            print("Fail")
-                        else:
-                            segments.append((last_x, last_y, x, y))
-                    else:
-                        segments.append((x, y))
-                    last_x, last_y = x, y
-                    continue
-                elif direction == BULGE_ARC:
-                    dx = signed8(b_glyph.pop(0))
-                    dy = signed8(b_glyph.pop(0))
-                    h = signed8(b_glyph.pop(0))
-                    bulge = h / 127.0
-                    x += dx * scale
-                    y += dy * scale
-                    if pen:
-                        if last_x is None or last_y is None:
-                            print("Fail")
-                        else:
-                            segments.append((last_x, last_y, x, y))
-                    else:
-                        segments.append((x, y))
-                    last_x, last_y = x, y
-                    continue
-                elif direction == POLY_BULGE_ARC:
-                    while True:
-                        dx = signed8(b_glyph.pop(0))
-                        dy = signed8(b_glyph.pop(0))
-                        if dx == 0 and dy == 0:
-                            break
-                        h = signed8(b_glyph.pop(0))
-                        bulge = h / 127.0
-                        x += dx * scale
-                        y += dy * scale
-                        if pen:
-                            if last_x is None or last_y is None:
-                                print("Fail")
-                            else:
-                                segments.append((last_x, last_y, x, y))
-                        else:
-                            segments.append((x, y))
-                        last_x, last_y = x, y
-                    continue
-                elif direction == COND_MODE_2:
-                    pass
-            else:
-                if direction in (2, 1, 0, 0xf, 0xe):
-                    dx = 1.0
-                elif direction in (3, 0xd):
-                    dx = 0.5
-                elif direction in (4, 0xc):
-                    dx = 0.0
-                elif direction in (5, 0xb):
-                    dx = -0.5
-                else:  # (6, 7, 8, 9, 0xa):
-                    dx = -1.0
-                if direction in (6, 5, 4, 3, 2):
-                    dy = 1.0
-                elif direction in (7, 1):
-                    dy = 0.5
-                elif direction in (8, 0):
-                    dy = 0.0
-                elif direction in (9, 0xF):
-                    dy = -0.5
-                else:  # (0xa, 0xb, 0xc, 0xd, 0xe, 0xf):
-                    dy = -1.0
-                x += dx * length * scale
-                y += dy * length * scale
-                if pen:
-                    assert (last_x is not None)
-                    assert (last_y is not None)
-                    segments.append((last_x, last_y, x, y))
-                else:
-                    segments.append((x, y))
-                last_x, last_y = x, y
-                continue
-        print("unreachable")
-        return segments
 
     def _parse(self, filename):
         with open(filename, "br") as f:
