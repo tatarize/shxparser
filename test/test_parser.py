@@ -2,6 +2,8 @@ import unittest
 from glob import glob
 from itertools import chain
 
+from svgelements import Arc
+
 from shxparser.shxparser import ShxFile, ShxPath
 
 
@@ -27,7 +29,14 @@ def draw(paths, w, h, fw, fh, filename="test.png"):
             y1 = p[3] - fh
             x2 = p[4] + fw
             y2 = p[5] - fh
-            draw.line((x0, -y0, x2, -y2), fill="black")
+            arc = Arc(start=(x0, y0), control=(x1, y1), end=(x2, y2))
+            t = 0
+            step = 1.0 / 10
+            for i in range(10):
+                p1 = arc.point(t)
+                p2 = arc.point(t+step)
+                draw.line((round(p1[0]), -round(p1[1]), round(p2[0]), -round(p2[1])), fill="black")
+                t += step
     im.save(filename)
 
 

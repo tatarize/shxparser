@@ -1,4 +1,4 @@
-from math import tau, cos, sin
+from math import tau, cos, sin, atan2
 
 END_OF_SHAPE = 0
 PEN_DOWN = 1
@@ -188,50 +188,54 @@ class ShxFile:
                             if not skip:
                                 b_glyph = bytearray(self.glyph_bytes[glyph]) + b_glyph
                     elif direction == XY_DISPLACEMENT:
-                        dx = signed8(b_glyph.pop(0))
-                        dy = signed8(b_glyph.pop(0))
+                        dx = signed8(b_glyph.pop(0)) * scale
+                        dy = signed8(b_glyph.pop(0)) * scale
                         if not skip:
-                            x += dx * scale
-                            y += dy * scale
+                            x += dx
+                            y += dy
                             if pen:
                                 path.line(x, y)
                             else:
                                 path.move(x, y)
                     elif direction == POLY_XY_DISPLACEMENT:
                         while True:
-                            dx = signed8(b_glyph.pop(0))
-                            dy = signed8(b_glyph.pop(0))
+                            dx = signed8(b_glyph.pop(0)) * scale
+                            dy = signed8(b_glyph.pop(0)) * scale
                             if dx == 0 and dy == 0:
                                 break
                             if not skip:
-                                x += dx * scale
-                                y += dy * scale
+                                x += dx
+                                y += dy
                                 if pen:
                                     path.line(x, y)
                                 else:
                                     path.move(x, y)
                     elif direction == OCTANT_ARC:
-                        radius = b_glyph.pop(0)
+                        radius = b_glyph.pop(0) * scale
                         sc = signed8(b_glyph.pop(0))
                         if not skip:
                             octant = tau / 8.0
                             ccw = (sc >> 7) & 1
-                            start = (sc >> 4) & 0x7
-                            span = sc & 0x7
-                            if span == 0:
-                                span = 8
+                            s = (sc >> 4) & 0x7
+                            c = sc & 0x7
+                            if c == 0:
+                                c = 8
                             if ccw:
-                                start = -start
-                            start_octent = span * tau / 8.0
-                            end_octent = start_octent + start
-                            cx = -radius * cos(start_octent)
-                            cy = -radius * sin(start_octent)
-                            dx = cx + radius * cos(end_octent)
-                            dy = cy + radius * sin(end_octent)
-                            x += dx * scale
-                            y += dy * scale
+                                s = -s
+                            start_angle = c * octant
+                            end_angle = (c + s) * octant
+                            mid_angle = (start_angle + end_angle) / 2
+                            # negative radius in the direction of start_octent finds center.
+                            cx = -radius * cos(start_angle)
+                            cy = -radius * sin(start_angle)
+                            mx = cx + radius * cos(mid_angle)
+                            my = cy + radius * sin(mid_angle)
+                            dx = cx + radius * cos(end_angle)
+                            dy = cy + radius * sin(end_angle)
+                            x += dx
+                            y += dy
                             if pen:
-                                path.line(x, y)
+                                path.arc(mx, my, x, y)
                             else:
                                 path.move(x, y)
                     elif direction == FRACTIONAL_ARC:
@@ -246,54 +250,72 @@ class ShxFile:
                         octant = tau / 8.0
                         start_offset = octant * b_glyph.pop(0) / 256.0
                         end_offset = octant * b_glyph.pop(0) / 256.0
-                        radius = 256 * b_glyph.pop(0) + b_glyph.pop(0)
+                        radius = (256 * b_glyph.pop(0) + b_glyph.pop(0)) * scale
                         sc = signed8(b_glyph.pop(0))
                         if not skip:
-                            ccw = sc >= 0
-                            sweep = (sc >> 4) & 0x7
-                            sweep *= octant
+                            ccw = (sc >> 7) & 1
+                            s = (sc >> 4) & 0x7
                             c = sc & 0x7
                             if c == 0:
                                 c = 8
                             if ccw:
-                                sweep = -sweep
+                                s = -s
                             start_angle = start_offset + (c * octant)
-                            end_angle = start_angle + sweep + end_offset
-                            cx = -radius * cos(start_angle)
-                            cy = -radius * sin(start_angle)
-                            dx = cx + radius * cos(end_angle)
-                            dy = cy + radius * sin(end_angle)
-                            x += dx * scale
-                            y += dy * scale
+                            end_angle = (c + s) * octant + end_offset
+                            mid_angle = (start_angle + end_angle) / 2
+                            cx = x - radius * cos(start_angle)
+                            cy = y - radius * sin(start_angle)
+                            mx = cx + radius * cos(mid_angle)
+                            my = cy + radius * sin(mid_angle)
+                            x = cx + radius * cos(end_angle)
+                            y = cy + radius * sin(end_angle)
                             if pen:
-                                path.line(x, y)
+                                path.arc(mx, my, x, y)
                             else:
                                 path.move(x, y)
                     elif direction == BULGE_ARC:
-                        dx = signed8(b_glyph.pop(0))
-                        dy = signed8(b_glyph.pop(0))
+                        dx = signed8(b_glyph.pop(0)) * scale
+                        dy = signed8(b_glyph.pop(0)) * scale
                         h = signed8(b_glyph.pop(0))
                         if not skip:
+                            r = abs(complex(dx, dy)) / 2
                             bulge = h / 127.0
-                            x += dx * scale
-                            y += dy * scale
+                            bx = x + (dx / 2)
+                            by = y + (dy / 2)
+                            bulge_angle = atan2(dy, dx) - tau / 4
+                            mx = bx + r * bulge * cos(bulge_angle)
+                            my = by + r * bulge * sin(bulge_angle)
+                            x += dx
+                            y += dy
                             if pen:
-                                path.line(x, y)
+                                if bulge == 0:
+                                    path.line(x, y)
+                                else:
+                                    path.arc(mx, my, x, y)
                             else:
                                 path.move(x, y)
                     elif direction == POLY_BULGE_ARC:
                         while True:
-                            dx = signed8(b_glyph.pop(0))
-                            dy = signed8(b_glyph.pop(0))
+                            dx = signed8(b_glyph.pop(0)) * scale
+                            dy = signed8(b_glyph.pop(0)) * scale
                             if dx == 0 and dy == 0:
                                 break
                             h = signed8(b_glyph.pop(0))
                             if not skip:
+                                r = abs(complex(dx, dy)) / 2
                                 bulge = h / 127.0
-                                x += dx * scale
-                                y += dy * scale
+                                bx = x + (dx / 2)
+                                by = y + (dy / 2)
+                                bulge_angle = atan2(dy, dx) - tau / 4
+                                mx = bx + r * bulge * cos(bulge_angle)
+                                my = by + r * bulge * sin(bulge_angle)
+                                x += dx  # (5,40) -> (55,40) c = 30,65, r 25
+                                y += dy
                                 if pen:
-                                    path.line(x, y)
+                                    if bulge == 0:
+                                        path.line(x, y)
+                                    else:
+                                        path.arc(mx, my, x, y)
                                 else:
                                     path.move(x, y)
                     elif direction == COND_MODE_2:
