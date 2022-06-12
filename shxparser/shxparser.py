@@ -37,6 +37,12 @@ def int_32le(b):
     )
 
 
+def read_int_8(stream):
+    byte = bytearray(stream.read(1))
+    if len(byte) == 1:
+        return byte[0]
+    return None
+
 def read_int_16le(stream):
     byte = bytearray(stream.read(2))
     if len(byte) == 2:
@@ -48,13 +54,6 @@ def read_int_32le(stream):
     b = bytearray(stream.read(4))
     if len(b) == 4:
         return int_32le(b)
-    return None
-
-
-def read_int_8(stream):
-    byte = bytearray(stream.read(1))
-    if len(byte) == 1:
-        return byte[0]
     return None
 
 
@@ -116,6 +115,88 @@ class ShxFile:
 
     def __str__(self):
         return f'{self.type}("{self.font_name}", {self.version}, glyphs: {len(self.glyph_bytes)})'
+
+    def _parse(self, filename):
+        with open(filename, "br") as f:
+            self._parse_header(f)
+            if self.type == "shapes":
+                self._parse_shapes(f)
+            elif self.type == "bigfont":
+                self._parse_bigfont(f)
+            elif self.type == "unifont":
+                self._parse_unifont(f)
+
+    def _parse_header(self, f):
+        header = read_string(f)
+        parts = header.split(" ")
+        self.format = parts[0]
+        self.type = parts[1]
+        self.version = parts[2]
+        f.read(2)
+
+    def _parse_shapes(self, f):
+        start = read_int_16le(f)
+        end = read_int_16le(f)
+        count = read_int_16le(f)
+        glyph_ref = list()
+        for i in range(count):
+            index = read_int_16le(f)
+            length = read_int_16le(f)
+            glyph_ref.append((index,length))
+
+        for index, length in glyph_ref:
+            if index == 0:
+                self.font_name = read_string(f)
+                self.font_height = read_int_8(f)  # vector lengths above baseline
+                self.font_width = read_int_8(f)  # vector lengths below baseline
+                self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
+                end = read_int_16le(f)
+            else:
+                self.glyph_bytes[index] = f.read(length)
+
+    def _parse_bigfont(self, f):
+        count = read_int_16le(f)
+        length = read_int_16le(f)
+        changes = list()
+        change_count = read_int_16le(f)
+        for i in range(change_count):
+            start = read_int_16le(f)
+            end = read_int_16le(f)
+            changes.append((start, end))
+
+        glyph_ref = list()
+        for i in range(count):
+            index = read_int_16le(f)
+            length = read_int_16le(f)
+            offset = read_int_32le(f)
+            glyph_ref.append((index, length, offset))
+
+        for index, length, offset in glyph_ref:
+            f.seek(offset,0)
+            if index == 0:
+                # self.font_name = read_string(f)
+                self.font_height = read_int_8(f)  # vector lengths above baseline
+                self.font_width = read_int_8(f)  # vector lengths below baseline
+                self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
+            else:
+                self.glyph_bytes[index] = f.read(length)[1:]
+
+    def _parse_unifont(self, f):
+        count = read_int_32le(f)
+        length = read_int_16le(f)
+        f.seek(5)
+        self.font_name = read_string(f)
+        self.font_height = read_int_8(f)
+        self.font_width = read_int_8(f)
+        self.mode = read_int_8(f)
+        self.unicode = read_int_8(f)
+        self.embedded = read_int_8(f)
+        ignore = read_int_8(f)
+        for i in range(count-1):
+            index = read_int_16le(f)
+            length = read_int_16le(f)
+            self.glyph_bytes[index] = f.read(length)[1:]
+
 
     def render(self, path, text, horizontal=True):
         skip = False
@@ -349,84 +430,3 @@ class ShxFile:
                         else:
                             path.move(x, y)
                 skip = False
-
-    def _parse_header(self, f):
-        header = read_string(f)
-        parts = header.split(" ")
-        self.format = parts[0]
-        self.type = parts[1]
-        self.version = parts[2]
-        f.read(2)
-
-    def _parse_shapes(self, f):
-        start = read_int_16le(f)
-        end = read_int_16le(f)
-        count = read_int_16le(f)
-        glyph_ref = list()
-        for i in range(count):
-            index = read_int_16le(f)
-            length = read_int_16le(f)
-            glyph_ref.append((index,length))
-
-        for index, length in glyph_ref:
-            if index == 0:
-                self.font_name = read_string(f)
-                self.font_height = read_int_8(f)  # vector lengths above baseline
-                self.font_width = read_int_8(f)  # vector lengths below baseline
-                self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
-                end = read_int_16le(f)
-            else:
-                self.glyph_bytes[index] = f.read(length)
-
-    def _parse_bigfont(self, f):
-        count = read_int_16le(f)
-        length = read_int_16le(f)
-        changes = list()
-        change_count = read_int_16le(f)
-        for i in range(change_count):
-            start = read_int_16le(f)
-            end = read_int_16le(f)
-            changes.append((start, end))
-
-        glyph_ref = list()
-        for i in range(count):
-            index = read_int_16le(f)
-            length = read_int_16le(f)
-            offset = read_int_32le(f)
-            glyph_ref.append((index, length, offset))
-
-        for index, length, offset in glyph_ref:
-            f.seek(offset,0)
-            if index == 0:
-                # self.font_name = read_string(f)
-                self.font_height = read_int_8(f)  # vector lengths above baseline
-                self.font_width = read_int_8(f)  # vector lengths below baseline
-                self.modes = read_int_8(f)  # 0 - Horizontal, 2 - dual. 0x0E command only when mode=2
-            else:
-                self.glyph_bytes[index] = f.read(length)[1:]
-
-    def _parse_unifont(self, f):
-        count = read_int_32le(f)
-        length = read_int_16le(f)
-        f.seek(5)
-        self.font_name = read_string(f)
-        self.font_height = read_int_8(f)
-        self.font_width = read_int_8(f)
-        self.mode = read_int_8(f)
-        self.unicode = read_int_8(f)
-        self.embedded = read_int_8(f)
-        ignore = read_int_8(f)
-        for i in range(count-1):
-            index = read_int_16le(f)
-            length = read_int_16le(f)
-            self.glyph_bytes[index] = f.read(length)[1:]
-
-    def _parse(self, filename):
-        with open(filename, "br") as f:
-            self._parse_header(f)
-            if self.type == "shapes":
-                self._parse_shapes(f)
-            elif self.type == "bigfont":
-                self._parse_bigfont(f)
-            elif self.type == "unifont":
-                self._parse_unifont(f)
