@@ -104,11 +104,15 @@ class ShxPath:
         Draw an arc from the current point to specified point going through the control point.
 
         3 Points define a circular arc, there is only one arc which travels from start to end going through a given
-        control point. The exceptions are when the arc points are colinear or two arc points are coincident. In some
+        control point. The exceptions are when the arc points are collinear or two arc points are coincident. In some
         cases the start and end points will be equal and the control point will be located the circle diameter away.
         """
         self.path.append((x0, y0, cx, cy, x1, y1))
 
+class ShxFontParseError(Exception):
+    """
+    Exception thrown if unable to pop a value from the given codes or other suspected parsing errors.
+    """
 
 class ShxFont:
     """
@@ -117,7 +121,7 @@ class ShxFont:
     on the font which create the vector path.
     """
 
-    def __init__(self, filename):
+    def __init__(self, filename, debug=False):
         self.format = None  # format (usually AutoCAD-86)
         self.type = None  # Font type: shapes, bigfont, unifont
         self.version = None  # Font file version (usually 1.0).
@@ -128,6 +132,7 @@ class ShxFont:
         self.modes = None  # 0 Horizontal Only, 2 Dual mode (Horizontal or Vertical)
         self.encoding = False  # 0 unicode, 1 packed multibyte, 2 shape file
         self.embedded = False  # 0 font can be embedded, 1 font cannot be embedded, 2 embedding is read-only
+        self._debug = debug
         self._parse(filename)
 
     def __str__(self):
@@ -218,6 +223,7 @@ class ShxFont:
             self.glyphs[index] = f.read(length)
 
     def render(self, path, text, horizontal=True, font_size=12.0):
+
         skip = False
         x = 0
         y = 0
@@ -226,14 +232,22 @@ class ShxFont:
         scale = font_size / self.above
         stack = []
         for letter in text:
+
             try:
                 code = bytearray(reversed(self.glyphs[ord(letter)]))
             except KeyError:
                 # Letter is not found.
                 continue
+
+            def pop():
+                try:
+                    return code.pop()
+                except IndexError as e:
+                    raise ShxFontParseError("No codes to pop()") from e
+
             pen = True
             while code:
-                b = code.pop()
+                b = pop()
                 direction = b & 0x0F
                 length = (b & 0xF0) >> 4
                 if length == 0:
@@ -247,11 +261,11 @@ class ShxFont:
                         if not skip:
                             pen = False
                     elif direction == DIVIDE_VECTOR:
-                        factor = code.pop()
+                        factor = pop()
                         if not skip:
                             scale /= factor
                     elif direction == MULTIPLY_VECTOR:
-                        factor = code.pop()
+                        factor = pop()
                         if not skip:
                             scale *= factor
                     elif direction == PUSH_STACK:
@@ -273,31 +287,31 @@ class ShxFont:
                             last_x, last_y = x, y
                     elif direction == DRAW_SUBSHAPE:
                         if self.type == "shapes":
-                            subshape = code.pop()
+                            subshape = pop()
                             if not skip:
                                 code = code + bytearray(reversed(self.glyphs[subshape]))
                         elif self.type == "bigfont":
-                            subshape = code.pop()
+                            subshape = pop()
                             if subshape == 0:
-                                subshape = int_16le([code.pop(), code.pop()])
-                                origin_x = code.pop() * scale
-                                origin_y = code.pop() * scale
-                                width = code.pop() * scale
-                                height = code.pop() * scale
+                                subshape = int_16le([pop(), pop()])
+                                origin_x = pop() * scale
+                                origin_y = pop() * scale
+                                width = pop() * scale
+                                height = pop() * scale
                             if not skip:
                                 try:
                                     code = code + bytearray(
                                         reversed(self.glyphs[subshape])
                                     )
-                                except KeyError:
-                                    pass  # TODO: Likely some bug here.
+                                except KeyError as e:
+                                    raise ShxFontParseError from e
                         elif self.type == "unifont":
-                            subshape = int_16le([code.pop(), code.pop()])
+                            subshape = int_16le([pop(), pop()])
                             if not skip:
                                 code = code + bytearray(reversed(self.glyphs[subshape]))
                     elif direction == XY_DISPLACEMENT:
-                        dx = signed8(code.pop()) * scale
-                        dy = signed8(code.pop()) * scale
+                        dx = signed8(pop()) * scale
+                        dy = signed8(pop()) * scale
                         if not skip:
                             x += dx
                             y += dy
@@ -308,8 +322,8 @@ class ShxFont:
                             last_x, last_y = x, y
                     elif direction == POLY_XY_DISPLACEMENT:
                         while True:
-                            dx = signed8(code.pop()) * scale
-                            dy = signed8(code.pop()) * scale
+                            dx = signed8(pop()) * scale
+                            dy = signed8(pop()) * scale
                             if dx == 0 and dy == 0:
                                 break
                             if not skip:
@@ -321,8 +335,8 @@ class ShxFont:
                                     path.move(x, y)
                                 last_x, last_y = x, y
                     elif direction == OCTANT_ARC:
-                        radius = code.pop() * scale
-                        sc = signed8(code.pop())
+                        radius = pop() * scale
+                        sc = signed8(pop())
                         if not skip:
                             octant = tau / 8.0
                             ccw = (sc >> 7) & 1
@@ -357,10 +371,10 @@ class ShxFont:
                         90° + (28/256 * 45°) = 95°
                         """
                         octant = tau / 8.0
-                        start_offset = octant * code.pop() / 256.0
-                        end_offset = octant * code.pop() / 256.0
-                        radius = (256 * code.pop() + code.pop()) * scale
-                        sc = signed8(code.pop())
+                        start_offset = octant * pop() / 256.0
+                        end_offset = octant * pop() / 256.0
+                        radius = (256 * pop() + pop()) * scale
+                        sc = signed8(pop())
                         if not skip:
                             ccw = (sc >> 7) & 1
                             s = (sc >> 4) & 0x7
@@ -384,9 +398,9 @@ class ShxFont:
                                 path.move(x, y)
                             last_x, last_y = x, y
                     elif direction == BULGE_ARC:
-                        dx = signed8(code.pop()) * scale
-                        dy = signed8(code.pop()) * scale
-                        h = signed8(code.pop())
+                        dx = signed8(pop()) * scale
+                        dy = signed8(pop()) * scale
+                        h = signed8(pop())
                         if not skip:
                             r = abs(complex(dx, dy)) / 2
                             bulge = h / 127.0
@@ -407,11 +421,11 @@ class ShxFont:
                             last_x, last_y = x, y
                     elif direction == POLY_BULGE_ARC:
                         while True:
-                            dx = signed8(code.pop()) * scale
-                            dy = signed8(code.pop()) * scale
+                            dx = signed8(pop()) * scale
+                            dy = signed8(pop()) * scale
                             if dx == 0 and dy == 0:
                                 break
-                            h = signed8(code.pop())
+                            h = signed8(pop())
                             if not skip:
                                 r = abs(complex(dx, dy)) / 2
                                 bulge = h / 127.0
