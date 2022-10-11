@@ -755,7 +755,8 @@ class ShxFont:
             if self._debug:
                 print(f"POLY_BULGE_ARC {dx}, {dy}, {h} {'(Skipped)' if self._skip else ''}")
             if dx == 0 and dy == 0:
-                print(f"POLY_BULBE_ARC (TERMINATED)")
+                if self._debug:
+                    print(f"POLY_BULGE_ARC (TERMINATED)")
                 break
             h = signed8(self.pop())
             if self._skip:
