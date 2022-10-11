@@ -1,4 +1,4 @@
-from math import tau, cos, sin, atan2
+from math import tau, cos, sin, atan2, isinf
 
 SHXPARSER_VERSION = "0.0.1"
 
@@ -105,7 +105,37 @@ class ShxPath:
             min_y = min(p[-1], min_y)
             max_x = max(p[-2], max_x)
             max_y = max(p[-1], max_y)
+        if isinf(min_x):
+            return None
         return min_x, min_y, max_x, max_y
+
+    def scale(self, scale_x, scale_y):
+        for p in self.path:
+            if p is None:
+                continue
+            if len(p) >= 2:
+                p[0] *= scale_x
+                p[1] *= scale_y
+            if len(p) >= 4:
+                p[2] *= scale_x
+                p[3] *= scale_y
+            if len(p) >= 6:
+                p[4] *= scale_x
+                p[5] *= scale_y
+
+    def translate(self, translate_x, translate_y):
+        for p in self.path:
+            if p is None:
+                continue
+            if len(p) >= 2:
+                p[0] += translate_x
+                p[1] += translate_y
+            if len(p) >= 4:
+                p[2] += translate_x
+                p[3] += translate_y
+            if len(p) >= 6:
+                p[4] += translate_x
+                p[5] += translate_y
 
     def new_path(self):
         """
@@ -117,13 +147,13 @@ class ShxPath:
         """
         Move current point to the point specified.
         """
-        self.path.append((x, y))
+        self.path.append([x, y])
 
     def line(self, x0, y0, x1, y1):
         """
         Draw a line from the current point to the specified point.
         """
-        self.path.append((x0, y0, x1, y1))
+        self.path.append([x0, y0, x1, y1])
 
     def arc(self, x0, y0, cx, cy, x1, y1):
         """
@@ -133,7 +163,7 @@ class ShxPath:
         control point. The exceptions are when the arc points are collinear or two arc points are coincident. In some
         cases the start and end points will be equal and the control point will be located the circle diameter away.
         """
-        self.path.append((x0, y0, cx, cy, x1, y1))
+        self.path.append([x0, y0, cx, cy, x1, y1])
 
 
 class ShxFontParseError(Exception):
