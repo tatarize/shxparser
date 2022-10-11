@@ -94,6 +94,8 @@ class ShxPath:
         max_x = -float("inf")
         max_y = -float("inf")
         for p in self.path:
+            if p is None:
+                continue
             min_x = min(p[0], min_x)
             min_y = min(p[1], min_y)
             max_x = max(p[0], max_x)
