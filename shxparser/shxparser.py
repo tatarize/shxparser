@@ -134,8 +134,8 @@ class ShxFont:
         self.modes = None  # 0 Horizontal Only, 2 Dual mode (Horizontal or Vertical)
         self.encoding = False  # 0 unicode, 1 packed multibyte, 2 shape file
         self.embedded = False  # 0 font can be embedded, 1 font cannot be embedded, 2 embedding is read-only
+
         self._debug = debug
-        self._parse(filename)
         self._code = None
         self._path = None
         self._skip = False
@@ -148,6 +148,8 @@ class ShxFont:
         self._last_y = 0
         self._scale = 1
         self._stack = []
+
+        self._parse(filename)
 
     def __str__(self):
         return f'{self.type}("{self.font_name}", {self.version}, glyphs: {len(self.glyphs)})'
@@ -246,10 +248,7 @@ class ShxFont:
 
     def pop(self):
         try:
-            code_pop = self._code.pop()
-            if self._debug:
-                print(f"{code_pop} popped {len(self._code)}")
-            return code_pop
+            return self._code.pop()
         except IndexError as e:
             raise ShxFontParseError("No codes to pop()") from e
 
@@ -281,10 +280,20 @@ class ShxFont:
             self._parse_code_length(direction, length)
 
     def _parse_code_length(self, direction, length):
-        if self._skip:
-            return
+        """
+        Length direction codes. If length is 0 then direction is special otherwise the
+        command is a move in one of 16 different directions moving in 22.5° increments for
+        a distance of 1 to 15 units lengths.
+
+        :param direction:
+        :param length:
+        :return:
+        """
         if self._debug:
-            print(f"MOVE DIRECTION {direction}")
+            print(f"MOVE DIRECTION {direction}  {'(Skipped)' if self._skip else ''}")
+        if self._skip:
+            self._skip = False
+            return
         if direction in (2, 1, 0, 0xF, 0xE):
             dx = 1.0
         elif direction in (3, 0xD):
@@ -352,6 +361,9 @@ class ShxFont:
         """
         if self._debug:
             print("END_OF_SHAPE")
+        if self._skip:
+            self._skip = False
+            return
         self._path.new_path()
 
     def _pen_down(self):
@@ -360,12 +372,12 @@ class ShxFont:
         :return:
         """
         if self._debug:
-            print(f"PEN_DOWN {self._x}, {self._y}")
-        if not self._skip:
-            self._pen = True
-            self._path.move(self._x, self._y)
-        elif self._debug:
-            print(f"Skipped.")
+            print(f"PEN_DOWN: {self._x}, {self._y} {'(Skipped)' if self._skip else ''}")
+        if self._skip:
+            self._skip = False
+            return
+        self._pen = True
+        self._path.move(self._x, self._y)
 
     def _pen_up(self):
         """
@@ -373,11 +385,11 @@ class ShxFont:
         :return:
         """
         if self._debug:
-            print("PEN_UP")
-        if not self._skip:
-            self._pen = False
-        elif self._debug:
-            print(f"Skipped.")
+            print(f"PEN_UP {'(Skipped)' if self._skip else ''}")
+        if self._skip:
+            self._skip = False
+            return
+        self._pen = False
 
     def _divide_vector(self):
         """
@@ -387,12 +399,12 @@ class ShxFont:
         :return:
         """
         factor = self.pop()
-        if not self._skip:
-            self._scale /= factor
-        elif self._debug:
-            print(f"Skipped.")
         if self._debug:
-            print(f"DIVIDE_VECTOR {factor} changes scale to {self._scale}")
+            print(f"DIVIDE_VECTOR {self._scale}/{factor} {'(Skipped)' if self._skip else ''}")
+        if self._skip:
+            self._skip = False
+            return
+        self._scale /= factor
 
     def _multiply_vector(self):
         """
@@ -401,12 +413,12 @@ class ShxFont:
         :return:
         """
         factor = self.pop()
-        if not self._skip:
-            self._scale *= factor
-        elif self._debug:
-            print(f"Skipped.")
         if self._debug:
-            print(f"DIVIDE_VECTOR {factor} changes scale to {self._scale}")
+            print(f"MULTIPLY_VECTOR {self._scale}*{factor} {'(Skipped)' if self._skip else ''}")
+        if self._skip:
+            self._skip = False
+            return
+        self._scale *= factor
 
     def _push_stack(self):
         """
@@ -415,16 +427,16 @@ class ShxFont:
 
         :return:
         """
-        if not self._skip:
-            if self._debug:
-                print(f"PUSH_STACK {self._x}, {self._y}")
-            self._stack.append((self._x, self._y))
-            if len(self._stack) == 4:
-                raise IndexError(
-                    f"Position stack overflow in shape {self._letter}"
-                )
-        elif self._debug:
-            print(f"Skipped.")
+        if self._debug:
+            print(f"PUSH_STACK {self._x}, {self._y} {'(Skipped)' if self._skip else ''}")
+        if self._skip:
+            self._skip = False
+            return
+        self._stack.append((self._x, self._y))
+        if len(self._stack) == 4:
+            raise IndexError(
+                f"Position stack overflow in shape {self._letter}"
+            )
 
     def _pop_stack(self):
         """
@@ -433,62 +445,61 @@ class ShxFont:
         :return:
         """
         if self._debug:
-            print(f"POP_STACK {self._x}, {self._y}")
-        if not self._skip:
-            try:
-                x, y = self._stack.pop()
-                if self._debug:
-                    print(f"Popped value: {x}, {y}: {len(self._stack)}")
-            except IndexError:
-                raise IndexError(
-                    f"Position stack underflow in shape {self._letter}"
-                )
-            self._path.move(x, y)
-            self._last_x, self._last_y = self._x, self._y
-        elif self._debug:
-            print(f"Skipped.")
+            print(f"POP_STACK {self._x}, {self._y}  {'(Skipped)' if self._skip else ''}")
+
+        if self._skip:
+            self._skip = False
+            return
+        try:
+            self._x, self._y = self._stack.pop()
+        except IndexError:
+            raise IndexError(
+                f"Position stack underflow in shape {self._letter}"
+            )
+        self._path.move(self._x, self._y)
+        self._last_x, self._last_y = self._x, self._y
 
     def _draw_subshape_shapes(self):
-        if self._debug:
-            print("subshape within shapes")
         subshape = self.pop()
-        if not self._skip:
-            self._code += bytearray(reversed(self.glyphs[subshape]))
-            if self._debug:
-                print(f"Appending glyph {subshape}.")
+        if self._debug:
+            print(f"Appending glyph {subshape} (Type={self.type}). {'(Skipped)' if self._skip else ''}")
+        if self._skip:
+            self._skip = False
+            return
+        self._code += bytearray(reversed(self.glyphs[subshape]))
 
     def _draw_subshape_bigfont(self):
-        if self._debug:
-            print("subshape within bigfont")
         subshape = self.pop()
+        if self._debug:
+            print(f"Appending glyph {subshape} (Type={self.type}). {'(Skipped)' if self._skip else ''}")
         if subshape == 0:
             subshape = int_16le([self.pop(), self.pop()])
             origin_x = self.pop() * self._scale
             origin_y = self.pop() * self._scale
             width = self.pop() * self._scale
             height = self.pop() * self._scale
-        if not self._skip:
-            try:
-                self._code += bytearray(
-                    reversed(self.glyphs[subshape])
-                )
-                if self._debug:
-                    print(f"Appending glyph {subshape}.")
-            except KeyError as e:
-                raise ShxFontParseError from e
-        elif self._debug:
-            print(f"Skipped.")
-
-    def _draw_subshape_unifont(self):
-        if self._debug:
-            print("subshape within unifont")
-        subshape = int_16le([self.pop(), self.pop()])
-        if not self._skip:
-            self._code += bytearray(reversed(self.glyphs[subshape]))
+            if self._debug:
+                print(f"Extended Bigfont Glyph: {subshape}, origin_x = {origin_x}, origin_y = {origin_y}. {width}x{height}")
+        if self._skip:
+            self._skip = False
+            return
+        try:
+            self._code += bytearray(
+                reversed(self.glyphs[subshape])
+            )
             if self._debug:
                 print(f"Appending glyph {subshape}.")
-        elif self._debug:
-            print(f"Skipped.")
+        except KeyError as e:
+            raise ShxFontParseError from e
+
+    def _draw_subshape_unifont(self):
+        subshape = int_16le([self.pop(), self.pop()])
+        if self._debug:
+            print(f"Appending glyph {subshape} (Type={self.type}). {'(Skipped)' if self._skip else ''}")
+        if self._skip:
+            self._skip = False
+            return
+        self._code += bytearray(reversed(self.glyphs[subshape]))
 
     def _draw_subshape(self):
         """
@@ -499,8 +510,6 @@ class ShxFont:
         continues.
         :return:
         """
-        if self._debug:
-            print("DRAW_SUBSHAPE")
         if self.type == "shapes":
             self._draw_subshape_shapes()
         elif self.type == "bigfont":
@@ -517,17 +526,17 @@ class ShxFont:
         dx = signed8(self.pop()) * self._scale
         dy = signed8(self.pop()) * self._scale
         if self._debug:
-            print(f"XY_DISPLACEMENT {dx} {dy}")
-        if not self._skip:
-            self._x += dx
-            self._y += dy
-            if self._pen:
-                self._path.line(self._last_x, self._last_y, self._x, self._y)
-            else:
-                self._path.move(self._x, self._y)
-            self._last_x, self._last_y = self._x, self._y
-        elif self._debug:
-            print(f"Skipped.")
+            print(f"XY_DISPLACEMENT {dx} {dy} {'(Skipped)' if self._skip else ''}")
+        if self._skip:
+            self._skip = False
+            return
+        self._x += dx
+        self._y += dy
+        if self._pen:
+            self._path.line(self._last_x, self._last_y, self._x, self._y)
+        else:
+            self._path.move(self._x, self._y)
+        self._last_x, self._last_y = self._x, self._y
 
     def _poly_xy_displacement(self):
         """
@@ -538,19 +547,22 @@ class ShxFont:
             dx = signed8(self.pop()) * self._scale
             dy = signed8(self.pop()) * self._scale
             if self._debug:
-                print(f"POLY_XY_DISPLACEMENT {dx} {dy}")
+                print(f"POLY_XY_DISPLACEMENT {dx} {dy} {'(Skipped)' if self._skip else ''}")
             if dx == 0 and dy == 0:
+                if self._debug:
+                    print("POLY_XY_DISPLACEMENT (Terminated)")
                 break
-            if not self._skip:
-                self._x += dx
-                self._y += dy
-                if self._pen:
-                    self._path.line(self._last_x, self._last_y, self._x, self._y)
-                else:
-                    self._path.move(self._x, self._y)
-                self._last_x, self._last_y = self._x, self._y
-            elif self._debug:
-                print(f"Skipped.")
+            if self._skip:
+                continue
+            self._x += dx
+            self._y += dy
+            if self._pen:
+                self._path.line(self._last_x, self._last_y, self._x, self._y)
+            else:
+                self._path.move(self._x, self._y)
+            self._last_x, self._last_y = self._x, self._y
+        if self._skip:
+            self._skip = False
 
     def _octant_arc(self):
         """
@@ -568,34 +580,36 @@ class ShxFont:
         and the span.
         :return:
         """
-        if self._debug:
-            print("OCTANT_ARC")
         radius = self.pop() * self._scale
         sc = signed8(self.pop())
-        if not self._skip:
-            octant = tau / 8.0
-            ccw = (sc >> 7) & 1
-            s = (sc >> 4) & 0x7
-            c = sc & 0x7
-            if c == 0:
-                c = 8
-            if ccw:
-                s = -s
-            start_angle = s * octant
-            end_angle = (c + s) * octant
-            mid_angle = (start_angle + end_angle) / 2
-            # negative radius in the direction of start_octent finds center.
-            cx = self._x - radius * cos(start_angle)
-            cy = self._y - radius * sin(start_angle)
-            mx = cx + radius * cos(mid_angle)
-            my = cy + radius * sin(mid_angle)
-            self._x = cx + radius * cos(end_angle)
-            self._y = cy + radius * sin(end_angle)
-            if self._pen:
-                self._path.arc(self._last_x, self._last_y, mx, my, self._x, self._y)
-            else:
-                self._path.move(self._x, self._y)
-            self._last_x, self._last_y = self._x, self._y
+        s = (sc >> 4) & 0x7
+        c = sc & 0x7
+        if self._debug:
+            print(f"OCTANT_ARC, {radius}, {s}, {c} {'(Skipped)' if self._skip else ''}")
+        if self._skip:
+            self._skip = False
+            return
+        octant = tau / 8.0
+        ccw = (sc >> 7) & 1
+        if c == 0:
+            c = 8
+        if ccw:
+            s = -s
+        start_angle = s * octant
+        end_angle = (c + s) * octant
+        mid_angle = (start_angle + end_angle) / 2
+        # negative radius in the direction of start_octent finds center.
+        cx = self._x - radius * cos(start_angle)
+        cy = self._y - radius * sin(start_angle)
+        mx = cx + radius * cos(mid_angle)
+        my = cy + radius * sin(mid_angle)
+        self._x = cx + radius * cos(end_angle)
+        self._y = cy + radius * sin(end_angle)
+        if self._pen:
+            self._path.arc(self._last_x, self._last_y, mx, my, self._x, self._y)
+        else:
+            self._path.move(self._x, self._y)
+        self._last_x, self._last_y = self._x, self._y
 
     def _fractional_arc(self):
         """
@@ -606,35 +620,39 @@ class ShxFont:
         95° -> (95 - 90) * (256 / 45) = 28 (octent 2)
         90° + (28/256 * 45°) = 95°
         """
-        if self._debug:
-            print("FRACTION_ARC")
         octant = tau / 8.0
         start_offset = octant * self.pop() / 256.0
         end_offset = octant * self.pop() / 256.0
         radius = (256 * self.pop() + self.pop()) * self._scale
         sc = signed8(self.pop())
-        if not self._skip:
-            ccw = (sc >> 7) & 1
-            s = (sc >> 4) & 0x7
-            c = sc & 0x7
-            if c == 0:
-                c = 8
-            if ccw:
-                s = -s
-            start_angle = start_offset + (s * octant)
-            end_angle = (c + s) * octant + end_offset
-            mid_angle = (start_angle + end_angle) / 2
-            cx = self._x - radius * cos(start_angle)
-            cy = self._y - radius * sin(start_angle)
-            mx = cx + radius * cos(mid_angle)
-            my = cy + radius * sin(mid_angle)
-            self._x = cx + radius * cos(end_angle)
-            self._y = cy + radius * sin(end_angle)
-            if self._pen:
-                self._path.arc(self._last_x, self._last_y, mx, my, self._x, self._y)
-            else:
-                self._path.move(self._x, self._y)
-            self._last_x, self._last_y = self._x, self._y
+        s = (sc >> 4) & 0x7
+        c = sc & 0x7
+
+        if self._debug:
+            print(f"FRACTION_ARC {start_offset}, {end_offset}, {radius}, {s}, {c} {'(Skipped)' if self._skip else ''}")
+        if self._skip:
+            self._skip = False
+            return
+        ccw = (sc >> 7) & 1
+
+        if c == 0:
+            c = 8
+        if ccw:
+            s = -s
+        start_angle = start_offset + (s * octant)
+        end_angle = (c + s) * octant + end_offset
+        mid_angle = (start_angle + end_angle) / 2
+        cx = self._x - radius * cos(start_angle)
+        cy = self._y - radius * sin(start_angle)
+        mx = cx + radius * cos(mid_angle)
+        my = cy + radius * sin(mid_angle)
+        self._x = cx + radius * cos(end_angle)
+        self._y = cy + radius * sin(end_angle)
+        if self._pen:
+            self._path.arc(self._last_x, self._last_y, mx, my, self._x, self._y)
+        else:
+            self._path.move(self._x, self._y)
+        self._last_x, self._last_y = self._x, self._y
 
     def _bulge_arc(self):
         """
@@ -645,12 +663,51 @@ class ShxFont:
 
         :return:
         """
-        if self._debug:
-            print("BULGE_ARC")
+
         dx = signed8(self.pop()) * self._scale
         dy = signed8(self.pop()) * self._scale
         h = signed8(self.pop())
-        if not self._skip:
+
+        if self._debug:
+            print(f"BULGE_ARC {dx}, {dy}, {h} {'(Skipped)' if self._skip else ''}")
+        if self._skip:
+            self._skip = False
+            return
+        r = abs(complex(dx, dy)) / 2
+        bulge = h / 127.0
+        bx = self._x + (dx / 2)
+        by = self._y + (dy / 2)
+        bulge_angle = atan2(dy, dx) - tau / 4
+        mx = bx + r * bulge * cos(bulge_angle)
+        my = by + r * bulge * sin(bulge_angle)
+        self._x += dx
+        self._y += dy
+        if self._pen:
+            if bulge == 0:
+                self._path.line(self._x, self._y)
+            else:
+                self._path.arc(self._last_x, self._last_y, mx, my, self._x, self._y)
+        else:
+            self._path.move(self._x, self._y)
+        self._last_x, self._last_y = self._x, self._y
+
+    def _poly_bulge_arc(self):
+        """
+        Similar to bulge but repeated, until X and Y are (0,0).
+        :return:
+        """
+        h = 0
+        while True:
+            dx = signed8(self.pop()) * self._scale
+            dy = signed8(self.pop()) * self._scale
+            if self._debug:
+                print(f"POLY_BULGE_ARC {dx}, {dy}, {h} {'(Skipped)' if self._skip else ''}")
+            if dx == 0 and dy == 0:
+                print(f"POLY_BULBE_ARC (TERMINATED)")
+                break
+            h = signed8(self.pop())
+            if self._skip:
+                continue
             r = abs(complex(dx, dy)) / 2
             bulge = h / 127.0
             bx = self._x + (dx / 2)
@@ -662,44 +719,14 @@ class ShxFont:
             self._y += dy
             if self._pen:
                 if bulge == 0:
-                    self._path.line(self._x, self._y)
+                    self._path.line(self._last_x, self._last_y, self._x, self._y)
                 else:
                     self._path.arc(self._last_x, self._last_y, mx, my, self._x, self._y)
             else:
                 self._path.move(self._x, self._y)
             self._last_x, self._last_y = self._x, self._y
-
-    def _poly_bulge_arc(self):
-        """
-        Similar to bulge but repeated, until X and Y are (0,0).
-        :return:
-        """
-        while True:
-            if self._debug:
-                print("POLY_BULGE_ARC")
-            dx = signed8(self.pop()) * self._scale
-            dy = signed8(self.pop()) * self._scale
-            if dx == 0 and dy == 0:
-                break
-            h = signed8(self.pop())
-            if not self._skip:
-                r = abs(complex(dx, dy)) / 2
-                bulge = h / 127.0
-                bx = self._x + (dx / 2)
-                by = self._y + (dy / 2)
-                bulge_angle = atan2(dy, dx) - tau / 4
-                mx = bx + r * bulge * cos(bulge_angle)
-                my = by + r * bulge * sin(bulge_angle)
-                self._x += dx
-                self._y += dy
-                if self._pen:
-                    if bulge == 0:
-                        self._path.line(self._last_x, self._last_y, self._x, self._y)
-                    else:
-                        self._path.arc(self._last_x, self._last_y, mx, my, self._x, self._y)
-                else:
-                    self._path.move(self._x, self._y)
-                self._last_x, self._last_y = self._x, self._y
+        if self._skip:
+            self._skip = False
 
     def _cond_mode_2(self):
         """
@@ -713,4 +740,3 @@ class ShxFont:
             if self._debug:
                 print("SKIP NEXT")
             self._skip = True
-            return
