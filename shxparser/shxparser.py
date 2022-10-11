@@ -128,7 +128,7 @@ class ShxFont:
         self.type = None  # Font type: shapes, bigfont, unifont
         self.version = None  # Font file version (usually 1.0).
         self.glyphs = dict()  # Glyph dictionary
-        self.font_name = "unknown"  # Parsed font name.
+        self.font_name = None  # Parsed font name.
         self.above = None  # Distance above baseline for capital letters.
         self.below = None  # Distance below baseline for lowercase letters
         self.modes = None  # 0 Horizontal Only, 2 Dual mode (Horizontal or Vertical)
@@ -165,10 +165,17 @@ class ShxFont:
                 self._parse_bigfont(f)
             elif self.type == "unifont":
                 self._parse_unifont(f)
+            else:
+                raise ShxFontParseError(f"{self.type} is not a valid shx file type.")
 
     def _parse_header(self, f):
-        header = read_string(f)
+        try:
+            header = read_string(f)
+        except UnicodeDecodeError:
+            raise ShxFontParseError("Header was not valid text.")
         parts = header.split(" ")
+        if len(parts) != 3:
+            raise ShxFontParseError("Header information invalid.")
         self.format = parts[0]
         self.type = parts[1]
         self.version = parts[2]
@@ -188,6 +195,8 @@ class ShxFont:
 
         for index, length in glyph_ref:
             if index == 0:
+                if self.font_name is not None:
+                    raise ShxFontParseError("Double-initializing glyph data detected")
                 self.font_name = read_string(f)
                 self.above = read_int_8(f)  # vector lengths above baseline
                 self.below = read_int_8(f)  # vector lengths below baseline
@@ -195,7 +204,34 @@ class ShxFont:
                 self.modes = read_int_8(f)
                 # end = read_int_16le(f)
             else:
-                self.glyphs[index] = f.read(length)
+
+                read = f.read(length)
+                data = read
+                if len(data) != length:
+                    raise ShxFontParseError("Glyph length did not exist in file.")
+                if data[0] == 0 and data[1] == 0:
+                    data = data[2:]
+                elif data[0] == 0:
+                    data = data[1:]
+                    find = data.find(b"\x00")
+                    if find != -1:
+                        name = data[:find]
+
+                        for c in name:
+                            if ord("A") <= c <= ord("Z") or ord("0") <= c <= ord("9") or c == ord(" ") or c == ord("&"):
+                                continue
+                            name = None
+                            break
+                        if name is not None:
+                            data = data[find+1:]
+                            try:
+                                name = name.decode()
+                            except UnicodeDecodeError:
+                                print(name)
+                            self.glyphs[name] = data
+                        else:
+                            print(f"{data} did not contain a name.")
+                self.glyphs[index] = data
 
     def _parse_bigfont(self, f):
         count = read_int_16le(f)
@@ -253,6 +289,8 @@ class ShxFont:
             raise ShxFontParseError("No codes to pop()") from e
 
     def render(self, path, text, horizontal=True, font_size=12.0):
+        if self.above is None:
+            raise ShxFontParseError("Header was not correctly parsed.")
         self._scale = font_size / self.above
         self._horizontal = horizontal
         self._path = path
@@ -265,7 +303,10 @@ class ShxFont:
                 continue
             self._pen = True
             while self._code:
-                self._parse_code()
+                try:
+                    self._parse_code()
+                except IndexError as e:
+                    raise ShxFontParseError("Stack Error during render.") from e
             self._skip = False
         if self._debug:
             print(f"Render Complete.\n\n\n")
@@ -290,7 +331,7 @@ class ShxFont:
         :return:
         """
         if self._debug:
-            print(f"MOVE DIRECTION {direction}  {'(Skipped)' if self._skip else ''}")
+            print(f"MOVE DIRECTION {direction} for {length}  {'(Skipped)' if self._skip else ''}")
         if self._skip:
             self._skip = False
             return
@@ -359,6 +400,11 @@ class ShxFont:
         End of shape definition.
         :return:
         """
+        try:
+            while self.pop() != 0:
+                pass
+        except ShxFontParseError:
+            pass
         if self._debug:
             print("END_OF_SHAPE")
         if self._skip:
@@ -401,6 +447,8 @@ class ShxFont:
         factor = self.pop()
         if self._debug:
             print(f"DIVIDE_VECTOR {self._scale}/{factor} {'(Skipped)' if self._skip else ''}")
+        if factor == 0:
+            raise ShxFontParseError("Divide Vector is not permitted to be 0.")
         if self._skip:
             self._skip = False
             return
@@ -415,6 +463,8 @@ class ShxFont:
         factor = self.pop()
         if self._debug:
             print(f"MULTIPLY_VECTOR {self._scale}*{factor} {'(Skipped)' if self._skip else ''}")
+        if factor == 0:
+            raise ShxFontParseError("Multiply Vector is not permitted to be 0.")
         if self._skip:
             self._skip = False
             return
@@ -466,7 +516,11 @@ class ShxFont:
         if self._skip:
             self._skip = False
             return
-        self._code += bytearray(reversed(self.glyphs[subshape]))
+        try:
+            shape = self.glyphs[subshape]
+        except KeyError as e:
+            raise ShxFontParseError("Referenced subshape does not exist.") from e
+        self._code += bytearray(reversed(shape))
 
     def _draw_subshape_bigfont(self):
         subshape = self.pop()
@@ -484,13 +538,10 @@ class ShxFont:
             self._skip = False
             return
         try:
-            self._code += bytearray(
-                reversed(self.glyphs[subshape])
-            )
-            if self._debug:
-                print(f"Appending glyph {subshape}.")
+            shape = self.glyphs[subshape]
         except KeyError as e:
-            raise ShxFontParseError from e
+            raise ShxFontParseError("Referenced subshape does not exist.") from e
+        self._code += bytearray(reversed(shape))
 
     def _draw_subshape_unifont(self):
         subshape = int_16le([self.pop(), self.pop()])
@@ -499,7 +550,11 @@ class ShxFont:
         if self._skip:
             self._skip = False
             return
-        self._code += bytearray(reversed(self.glyphs[subshape]))
+        try:
+            shape = self.glyphs[subshape]
+        except KeyError as e:
+            raise ShxFontParseError("Referenced subshape does not exist.") from e
+        self._code += bytearray(reversed(shape))
 
     def _draw_subshape(self):
         """
@@ -684,7 +739,7 @@ class ShxFont:
         self._y += dy
         if self._pen:
             if bulge == 0:
-                self._path.line(self._x, self._y)
+                self._path.line(self._last_x, self._last_y, self._x, self._y)
             else:
                 self._path.arc(self._last_x, self._last_y, mx, my, self._x, self._y)
         else:
