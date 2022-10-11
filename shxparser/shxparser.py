@@ -109,10 +109,12 @@ class ShxPath:
         """
         self.path.append((x0, y0, cx, cy, x1, y1))
 
+
 class ShxFontParseError(Exception):
     """
     Exception thrown if unable to pop a value from the given codes or other suspected parsing errors.
     """
+
 
 class ShxFont:
     """
@@ -134,6 +136,18 @@ class ShxFont:
         self.embedded = False  # 0 font can be embedded, 1 font cannot be embedded, 2 embedding is read-only
         self._debug = debug
         self._parse(filename)
+        self._code = None
+        self._path = None
+        self._skip = False
+        self._pen = False
+        self._horizontal = True
+        self._letter = None
+        self._x = 0
+        self._y = 0
+        self._last_x = 0
+        self._last_y = 0
+        self._scale = 1
+        self._stack = []
 
     def __str__(self):
         return f'{self.type}("{self.font_name}", {self.version}, glyphs: {len(self.glyphs)})'
@@ -141,6 +155,8 @@ class ShxFont:
     def _parse(self, filename):
         with open(filename, "br") as f:
             self._parse_header(f)
+            if self._debug:
+                print(f"Font header indicates font type is {self.type}")
             if self.type == "shapes":
                 self._parse_shapes(f)
             elif self.type == "bigfont":
@@ -160,6 +176,8 @@ class ShxFont:
         start = read_int_16le(f)
         end = read_int_16le(f)
         count = read_int_16le(f)
+        if self._debug:
+            print(f"Parsing shape: start={start}, end={end}, count={count}")
         glyph_ref = list()
         for i in range(count):
             index = read_int_16le(f)
@@ -182,6 +200,8 @@ class ShxFont:
         length = read_int_16le(f)
         changes = list()
         change_count = read_int_16le(f)
+        if self._debug:
+            print(f"Parsing bigfont: count={count}, length={length}, change_count={change_count}")
         for i in range(change_count):
             start = read_int_16le(f)
             end = read_int_16le(f)
@@ -217,264 +237,388 @@ class ShxFont:
         self.encoding = read_int_8(f)
         self.embedded = read_int_8(f)
         ignore = read_int_8(f)
+        if self._debug:
+            print(f"Parsing unifont: name={self.font_name}, count={count}, length={length}")
         for i in range(count - 1):
             index = read_int_16le(f)
             length = read_int_16le(f)
             self.glyphs[index] = f.read(length)
 
+    def pop(self):
+        try:
+            code_pop = self._code.pop()
+            if self._debug:
+                print(f"{code_pop} popped {len(self._code)}")
+            return code_pop
+        except IndexError as e:
+            raise ShxFontParseError("No codes to pop()") from e
+
     def render(self, path, text, horizontal=True, font_size=12.0):
-
-        skip = False
-        x = 0
-        y = 0
-        last_x = 0
-        last_y = 0
-        scale = font_size / self.above
-        stack = []
+        self._scale = font_size / self.above
+        self._horizontal = horizontal
+        self._path = path
         for letter in text:
-
+            self._letter = letter
             try:
-                code = bytearray(reversed(self.glyphs[ord(letter)]))
+                self._code = bytearray(reversed(self.glyphs[ord(letter)]))
             except KeyError:
                 # Letter is not found.
                 continue
+            self._pen = True
+            while self._code:
+                self._parse_code()
+            self._skip = False
+        if self._debug:
+            print(f"Render Complete.\n\n\n")
 
-            def pop():
+    def _parse_code(self):
+        b = self.pop()
+        direction = b & 0x0F
+        length = (b & 0xF0) >> 4
+        if length == 0:
+            self._parse_code_special(direction)
+        else:
+            self._parse_code_length(direction, length)
+
+    def _end_of_shape(self):
+        if self._debug:
+            print("END_OF_SHAPE")
+        self._path.new_path()
+
+    def _pen_down(self):
+        if self._debug:
+            print(f"PEN_DOWN {self._x}, {self._y}")
+        if not self._skip:
+            self._pen = True
+            self._path.move(self._x, self._y)
+        elif self._debug:
+            print(f"Skipped.")
+
+    def _pen_up(self):
+        if self._debug:
+            print("PEN_UP")
+        if not self._skip:
+            self._pen = False
+        elif self._debug:
+            print(f"Skipped.")
+
+    def _divide_vector(self):
+        factor = self.pop()
+        if not self._skip:
+            self._scale /= factor
+        elif self._debug:
+            print(f"Skipped.")
+        if self._debug:
+            print(f"DIVIDE_VECTOR {factor} changes scale to {self._scale}")
+
+    def _multiply_vector(self):
+        factor = self.pop()
+        if not self._skip:
+            self._scale *= factor
+        elif self._debug:
+            print(f"Skipped.")
+        if self._debug:
+            print(f"DIVIDE_VECTOR {factor} changes scale to {self._scale}")
+
+    def _push_stack(self):
+        if not self._skip:
+            if self._debug:
+                print(f"PUSH_STACK {self._x}, {self._y}")
+            self._stack.append((self._x, self._y))
+            if len(self._stack) == 4:
+                raise IndexError(
+                    f"Position stack overflow in shape {self._letter}"
+                )
+        elif self._debug:
+            print(f"Skipped.")
+
+    def _pop_stack(self):
+        if self._debug:
+            print(f"POP_STACK {self._x}, {self._y}")
+        if not self._skip:
+            try:
+                x, y = self._stack.pop()
+                if self._debug:
+                    print(f"Popped value: {x}, {y}: {len(self._stack)}")
+            except IndexError:
+                raise IndexError(
+                    f"Position stack underflow in shape {self._letter}"
+                )
+            self._path.move(x, y)
+            self._last_x, self._last_y = self._x, self._y
+        elif self._debug:
+            print(f"Skipped.")
+
+    def _draw_subshape(self):
+        if self._debug:
+            print("DRAW_SUBSHAPE")
+        if self.type == "shapes":
+            if self._debug:
+                print("subshape within shapes")
+            subshape = self.pop()
+            if not self._skip:
+                self._code += bytearray(reversed(self.glyphs[subshape]))
+                if self._debug:
+                    print(f"Appending glyph {subshape}.")
+        elif self.type == "bigfont":
+            if self._debug:
+                print("subshape within bigfont")
+            subshape = self.pop()
+            if subshape == 0:
+                subshape = int_16le([self.pop(), self.pop()])
+                origin_x = self.pop() * self._scale
+                origin_y = self.pop() * self._scale
+                width = self.pop() * self._scale
+                height = self.pop() * self._scale
+            if not self._skip:
                 try:
-                    return code.pop()
-                except IndexError as e:
-                    raise ShxFontParseError("No codes to pop()") from e
+                    self._code += bytearray(
+                        reversed(self.glyphs[subshape])
+                    )
+                    if self._debug:
+                        print(f"Appending glyph {subshape}.")
+                except KeyError as e:
+                    raise ShxFontParseError from e
+            elif self._debug:
+                print(f"Skipped.")
+        elif self.type == "unifont":
+            if self._debug:
+                print("subshape within unifont")
+            subshape = int_16le([self.pop(), self.pop()])
+            if not self._skip:
+                self._code += bytearray(reversed(self.glyphs[subshape]))
+                if self._debug:
+                    print(f"Appending glyph {subshape}.")
+            elif self._debug:
+                print(f"Skipped.")
 
-            pen = True
-            while code:
-                b = pop()
-                direction = b & 0x0F
-                length = (b & 0xF0) >> 4
-                if length == 0:
-                    if direction == END_OF_SHAPE:
-                        path.new_path()
-                    elif direction == PEN_DOWN:
-                        if not skip:
-                            pen = True
-                            path.move(x, y)
-                    elif direction == PEN_UP:
-                        if not skip:
-                            pen = False
-                    elif direction == DIVIDE_VECTOR:
-                        factor = pop()
-                        if not skip:
-                            scale /= factor
-                    elif direction == MULTIPLY_VECTOR:
-                        factor = pop()
-                        if not skip:
-                            scale *= factor
-                    elif direction == PUSH_STACK:
-                        if not skip:
-                            stack.append((x, y))
-                            if len(stack) == 4:
-                                raise IndexError(
-                                    f"Position stack overflow in shape {letter}"
-                                )
-                    elif direction == POP_STACK:
-                        if not skip:
-                            try:
-                                x, y = stack.pop()
-                            except IndexError:
-                                raise IndexError(
-                                    f"Position stack underflow in shape {letter}"
-                                )
-                            path.move(x, y)
-                            last_x, last_y = x, y
-                    elif direction == DRAW_SUBSHAPE:
-                        if self.type == "shapes":
-                            subshape = pop()
-                            if not skip:
-                                code = code + bytearray(reversed(self.glyphs[subshape]))
-                        elif self.type == "bigfont":
-                            subshape = pop()
-                            if subshape == 0:
-                                subshape = int_16le([pop(), pop()])
-                                origin_x = pop() * scale
-                                origin_y = pop() * scale
-                                width = pop() * scale
-                                height = pop() * scale
-                            if not skip:
-                                try:
-                                    code = code + bytearray(
-                                        reversed(self.glyphs[subshape])
-                                    )
-                                except KeyError as e:
-                                    raise ShxFontParseError from e
-                        elif self.type == "unifont":
-                            subshape = int_16le([pop(), pop()])
-                            if not skip:
-                                code = code + bytearray(reversed(self.glyphs[subshape]))
-                    elif direction == XY_DISPLACEMENT:
-                        dx = signed8(pop()) * scale
-                        dy = signed8(pop()) * scale
-                        if not skip:
-                            x += dx
-                            y += dy
-                            if pen:
-                                path.line(last_x, last_y, x, y)
-                            else:
-                                path.move(x, y)
-                            last_x, last_y = x, y
-                    elif direction == POLY_XY_DISPLACEMENT:
-                        while True:
-                            dx = signed8(pop()) * scale
-                            dy = signed8(pop()) * scale
-                            if dx == 0 and dy == 0:
-                                break
-                            if not skip:
-                                x += dx
-                                y += dy
-                                if pen:
-                                    path.line(last_x, last_y, x, y)
-                                else:
-                                    path.move(x, y)
-                                last_x, last_y = x, y
-                    elif direction == OCTANT_ARC:
-                        radius = pop() * scale
-                        sc = signed8(pop())
-                        if not skip:
-                            octant = tau / 8.0
-                            ccw = (sc >> 7) & 1
-                            s = (sc >> 4) & 0x7
-                            c = sc & 0x7
-                            if c == 0:
-                                c = 8
-                            if ccw:
-                                s = -s
-                            start_angle = s * octant
-                            end_angle = (c + s) * octant
-                            mid_angle = (start_angle + end_angle) / 2
-                            # negative radius in the direction of start_octent finds center.
-                            cx = x - radius * cos(start_angle)
-                            cy = y - radius * sin(start_angle)
-                            mx = cx + radius * cos(mid_angle)
-                            my = cy + radius * sin(mid_angle)
-                            x = cx + radius * cos(end_angle)
-                            y = cy + radius * sin(end_angle)
-                            if pen:
-                                path.arc(last_x, last_y, mx, my, x, y)
-                            else:
-                                path.move(x, y)
-                            last_x, last_y = x, y
-                    elif direction == FRACTIONAL_ARC:
-                        """
-                        Fractional Arc.
-                        Octant Arc plus fractional bits 0-255 parts of 45°
-                        55° -> (55 - 45) * (256 / 45) = 56 (octent 1)
-                        45° + (56/256 * 45°) = 55°
-                        95° -> (95 - 90) * (256 / 45) = 28 (octent 2)
-                        90° + (28/256 * 45°) = 95°
-                        """
-                        octant = tau / 8.0
-                        start_offset = octant * pop() / 256.0
-                        end_offset = octant * pop() / 256.0
-                        radius = (256 * pop() + pop()) * scale
-                        sc = signed8(pop())
-                        if not skip:
-                            ccw = (sc >> 7) & 1
-                            s = (sc >> 4) & 0x7
-                            c = sc & 0x7
-                            if c == 0:
-                                c = 8
-                            if ccw:
-                                s = -s
-                            start_angle = start_offset + (s * octant)
-                            end_angle = (c + s) * octant + end_offset
-                            mid_angle = (start_angle + end_angle) / 2
-                            cx = x - radius * cos(start_angle)
-                            cy = y - radius * sin(start_angle)
-                            mx = cx + radius * cos(mid_angle)
-                            my = cy + radius * sin(mid_angle)
-                            x = cx + radius * cos(end_angle)
-                            y = cy + radius * sin(end_angle)
-                            if pen:
-                                path.arc(last_x, last_y, mx, my, x, y)
-                            else:
-                                path.move(x, y)
-                            last_x, last_y = x, y
-                    elif direction == BULGE_ARC:
-                        dx = signed8(pop()) * scale
-                        dy = signed8(pop()) * scale
-                        h = signed8(pop())
-                        if not skip:
-                            r = abs(complex(dx, dy)) / 2
-                            bulge = h / 127.0
-                            bx = x + (dx / 2)
-                            by = y + (dy / 2)
-                            bulge_angle = atan2(dy, dx) - tau / 4
-                            mx = bx + r * bulge * cos(bulge_angle)
-                            my = by + r * bulge * sin(bulge_angle)
-                            x += dx
-                            y += dy
-                            if pen:
-                                if bulge == 0:
-                                    path.line(x, y)
-                                else:
-                                    path.arc(last_x, last_y, mx, my, x, y)
-                            else:
-                                path.move(x, y)
-                            last_x, last_y = x, y
-                    elif direction == POLY_BULGE_ARC:
-                        while True:
-                            dx = signed8(pop()) * scale
-                            dy = signed8(pop()) * scale
-                            if dx == 0 and dy == 0:
-                                break
-                            h = signed8(pop())
-                            if not skip:
-                                r = abs(complex(dx, dy)) / 2
-                                bulge = h / 127.0
-                                bx = x + (dx / 2)
-                                by = y + (dy / 2)
-                                bulge_angle = atan2(dy, dx) - tau / 4
-                                mx = bx + r * bulge * cos(bulge_angle)
-                                my = by + r * bulge * sin(bulge_angle)
-                                x += dx
-                                y += dy
-                                if pen:
-                                    if bulge == 0:
-                                        path.line(last_x, last_y, x, y)
-                                    else:
-                                        path.arc(last_x, last_y, mx, my, x, y)
-                                else:
-                                    path.move(x, y)
-                                last_x, last_y = x, y
-                    elif direction == COND_MODE_2:
-                        if self.modes == 2 and horizontal:
-                            skip = True
-                            continue
+    def _xy_displacement(self):
+        dx = signed8(self.pop()) * self._scale
+        dy = signed8(self.pop()) * self._scale
+        if self._debug:
+            print(f"XY_DISPLACEMENT {dx} {dy}")
+        if not self._skip:
+            self._x += dx
+            self._y += dy
+            if self._pen:
+                self._path.line(self._last_x, self._last_y, self._x, self._y)
+            else:
+                self._path.move(self._x, self._y)
+            self._last_x, self._last_y = self._x, self._y
+        elif self._debug:
+            print(f"Skipped.")
+
+    def _poly_xy_displacement(self):
+        while True:
+            dx = signed8(self.pop()) * self._scale
+            dy = signed8(self.pop()) * self._scale
+            if self._debug:
+                print(f"POLY_XY_DISPLACEMENT {dx} {dy}")
+            if dx == 0 and dy == 0:
+                break
+            if not self._skip:
+                self._x += dx
+                self._y += dy
+                if self._pen:
+                    self._path.line(self._last_x, self._last_y, self._x, self._y)
                 else:
-                    if not skip:
-                        if direction in (2, 1, 0, 0xF, 0xE):
-                            dx = 1.0
-                        elif direction in (3, 0xD):
-                            dx = 0.5
-                        elif direction in (4, 0xC):
-                            dx = 0.0
-                        elif direction in (5, 0xB):
-                            dx = -0.5
-                        else:  # (6, 7, 8, 9, 0xa):
-                            dx = -1.0
-                        if direction in (6, 5, 4, 3, 2):
-                            dy = 1.0
-                        elif direction in (7, 1):
-                            dy = 0.5
-                        elif direction in (8, 0):
-                            dy = 0.0
-                        elif direction in (9, 0xF):
-                            dy = -0.5
-                        else:  # (0xa, 0xb, 0xc, 0xd, 0xe, 0xf):
-                            dy = -1.0
-                        x += dx * length * scale
-                        y += dy * length * scale
-                        if pen:
-                            path.line(last_x, last_y, x, y)
-                        else:
-                            path.move(x, y)
-                        last_x, last_y = x, y
-                skip = False
+                    self._path.move(self._x, self._y)
+                self._last_x, self._last_y = self._x, self._y
+            elif self._debug:
+                print(f"Skipped.")
+
+    def _octant_arc(self):
+        if self._debug:
+            print("OCTANT_ARC")
+        radius = self.pop() * self._scale
+        sc = signed8(self.pop())
+        if not self._skip:
+            octant = tau / 8.0
+            ccw = (sc >> 7) & 1
+            s = (sc >> 4) & 0x7
+            c = sc & 0x7
+            if c == 0:
+                c = 8
+            if ccw:
+                s = -s
+            start_angle = s * octant
+            end_angle = (c + s) * octant
+            mid_angle = (start_angle + end_angle) / 2
+            # negative radius in the direction of start_octent finds center.
+            cx = self._x - radius * cos(start_angle)
+            cy = self._y - radius * sin(start_angle)
+            mx = cx + radius * cos(mid_angle)
+            my = cy + radius * sin(mid_angle)
+            self._x = cx + radius * cos(end_angle)
+            self._y = cy + radius * sin(end_angle)
+            if self._pen:
+                self._path.arc(self._last_x, self._last_y, mx, my, self._x, self._y)
+            else:
+                self._path.move(self._x, self._y)
+            self._last_x, self._last_y = self._x, self._y
+
+    def _fractional_arc(self):
+        """
+                    Fractional Arc.
+                    Octant Arc plus fractional bits 0-255 parts of 45°
+                    55° -> (55 - 45) * (256 / 45) = 56 (octent 1)
+                    45° + (56/256 * 45°) = 55°
+                    95° -> (95 - 90) * (256 / 45) = 28 (octent 2)
+                    90° + (28/256 * 45°) = 95°
+                    """
+        if self._debug:
+            print("FRACTION_ARC")
+        octant = tau / 8.0
+        start_offset = octant * self.pop() / 256.0
+        end_offset = octant * self.pop() / 256.0
+        radius = (256 * self.pop() + self.pop()) * self._scale
+        sc = signed8(self.pop())
+        if not self._skip:
+            ccw = (sc >> 7) & 1
+            s = (sc >> 4) & 0x7
+            c = sc & 0x7
+            if c == 0:
+                c = 8
+            if ccw:
+                s = -s
+            start_angle = start_offset + (s * octant)
+            end_angle = (c + s) * octant + end_offset
+            mid_angle = (start_angle + end_angle) / 2
+            cx = self._x - radius * cos(start_angle)
+            cy = self._y - radius * sin(start_angle)
+            mx = cx + radius * cos(mid_angle)
+            my = cy + radius * sin(mid_angle)
+            self._x = cx + radius * cos(end_angle)
+            self._y = cy + radius * sin(end_angle)
+            if self._pen:
+                self._path.arc(self._last_x, self._last_y, mx, my, self._x, self._y)
+            else:
+                self._path.move(self._x, self._y)
+            self._last_x, self._last_y = self._x, self._y
+
+    def _bulge_arc(self):
+        if self._debug:
+            print("BULGE_ARC")
+        dx = signed8(self.pop()) * self._scale
+        dy = signed8(self.pop()) * self._scale
+        h = signed8(self.pop())
+        if not self._skip:
+            r = abs(complex(dx, dy)) / 2
+            bulge = h / 127.0
+            bx = self._x + (dx / 2)
+            by = self._y + (dy / 2)
+            bulge_angle = atan2(dy, dx) - tau / 4
+            mx = bx + r * bulge * cos(bulge_angle)
+            my = by + r * bulge * sin(bulge_angle)
+            self._x += dx
+            self._y += dy
+            if self._pen:
+                if bulge == 0:
+                    self._path.line(self._x, self._y)
+                else:
+                    self._path.arc(self._last_x, self._last_y, mx, my, self._x, self._y)
+            else:
+                self._path.move(self._x, self._y)
+            self._last_x, self._last_y = self._x, self._y
+
+    def _poly_bulge_arc(self):
+        while True:
+            if self._debug:
+                print("POLY_BULGE_ARC")
+            dx = signed8(self.pop()) * self._scale
+            dy = signed8(self.pop()) * self._scale
+            if dx == 0 and dy == 0:
+                break
+            h = signed8(self.pop())
+            if not self._skip:
+                r = abs(complex(dx, dy)) / 2
+                bulge = h / 127.0
+                bx = self._x + (dx / 2)
+                by = self._y + (dy / 2)
+                bulge_angle = atan2(dy, dx) - tau / 4
+                mx = bx + r * bulge * cos(bulge_angle)
+                my = by + r * bulge * sin(bulge_angle)
+                self._x += dx
+                self._y += dy
+                if self._pen:
+                    if bulge == 0:
+                        self._path.line(self._last_x, self._last_y, self._x, self._y)
+                    else:
+                        self._path.arc(self._last_x, self._last_y, mx, my, self._x, self._y)
+                else:
+                    self._path.move(self._x, self._y)
+                self._last_x, self._last_y = self._x, self._y
+
+    def _cond_mode_2(self):
+        if self._debug:
+            print("COND_MODE_2")
+        if self.modes == 2 and self._horizontal:
+            if self._debug:
+                print("SKIP NEXT")
+            self._skip = True
+            return
+
+    def _parse_code_special(self, special):
+        if special == END_OF_SHAPE:
+            self._end_of_shape()
+        elif special == PEN_DOWN:
+            self._pen_down()
+        elif special == PEN_UP:
+            self._pen_up()
+        elif special == DIVIDE_VECTOR:
+            self._divide_vector()
+        elif special == MULTIPLY_VECTOR:
+            self._multiply_vector()
+        elif special == PUSH_STACK:
+            self._push_stack()
+        elif special == POP_STACK:
+            self._pop_stack()
+        elif special == DRAW_SUBSHAPE:
+            self._draw_subshape()
+        elif special == XY_DISPLACEMENT:
+            self._xy_displacement()
+        elif special == POLY_XY_DISPLACEMENT:
+            self._poly_xy_displacement()
+        elif special == OCTANT_ARC:
+            self._octant_arc()
+        elif special == FRACTIONAL_ARC:
+            self._fractional_arc()
+        elif special == BULGE_ARC:
+            self._bulge_arc()
+        elif special == POLY_BULGE_ARC:
+            self._poly_bulge_arc()
+        elif special == COND_MODE_2:
+            self._cond_mode_2()
+
+    def _parse_code_length(self, direction, length):
+        if self._skip:
+            return
+        if self._debug:
+            print(f"MOVE DIRECTION {direction}")
+        if direction in (2, 1, 0, 0xF, 0xE):
+            dx = 1.0
+        elif direction in (3, 0xD):
+            dx = 0.5
+        elif direction in (4, 0xC):
+            dx = 0.0
+        elif direction in (5, 0xB):
+            dx = -0.5
+        else:  # (6, 7, 8, 9, 0xa):
+            dx = -1.0
+        if direction in (6, 5, 4, 3, 2):
+            dy = 1.0
+        elif direction in (7, 1):
+            dy = 0.5
+        elif direction in (8, 0):
+            dy = 0.0
+        elif direction in (9, 0xF):
+            dy = -0.5
+        else:  # (0xa, 0xb, 0xc, 0xd, 0xe, 0xf):
+            dy = -1.0
+        self._x += dx * length * self._scale
+        self._y += dy * length * self._scale
+        if self._pen:
+            self._path.line(self._last_x, self._last_y, self._x, self._y)
+        else:
+            self._path.move(self._x, self._y)
+        self._last_x, self._last_y = self._x, self._y
