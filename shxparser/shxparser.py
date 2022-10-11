@@ -62,14 +62,17 @@ def read_int_32le(stream):
 
 
 def read_string(stream):
-    bb = bytearray()
-    while True:
-        b = stream.read(1)
-        if b == b"":
-            return bb.decode("utf-8")
-        if b == b"\r" or b == b"\n" or b == b"\x00":
-            return bb.decode("utf-8")
-        bb += b
+    try:
+        bb = bytearray()
+        while True:
+            b = stream.read(1)
+            if b == b"":
+                return bb.decode("utf-8")
+            if b == b"\r" or b == b"\n" or b == b"\x00":
+                return bb.decode("utf-8")
+            bb += b
+    except UnicodeDecodeError as e:
+        raise ShxFontParseError("Read string did not capture valid text.") from e
 
 
 class ShxPath:
@@ -169,10 +172,7 @@ class ShxFont:
                 raise ShxFontParseError(f"{self.type} is not a valid shx file type.")
 
     def _parse_header(self, f):
-        try:
-            header = read_string(f)
-        except UnicodeDecodeError:
-            raise ShxFontParseError("Header was not valid text.")
+        header = read_string(f)
         parts = header.split(" ")
         if len(parts) != 3:
             raise ShxFontParseError("Header information invalid.")
@@ -204,7 +204,6 @@ class ShxFont:
                 self.modes = read_int_8(f)
                 # end = read_int_16le(f)
             else:
-
                 read = f.read(length)
                 data = read
                 if len(data) != length:
@@ -224,13 +223,11 @@ class ShxFont:
                             break
                         if name is not None:
                             data = data[find+1:]
-                            try:
-                                name = name.decode()
-                            except UnicodeDecodeError:
-                                print(name)
+                            name = name.decode()
                             self.glyphs[name] = data
                         else:
-                            print(f"{data} did not contain a name.")
+                            if self._debug:
+                                print(f"{data} did not contain a name.")
                 self.glyphs[index] = data
 
     def _parse_bigfont(self, f):
