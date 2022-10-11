@@ -228,7 +228,7 @@ class ShxFont:
         header = read_string(f)
         parts = header.split(" ")
         if len(parts) != 3:
-            raise ShxFontParseError("Header information invalid.")
+            raise ShxFontParseError(f"Header information invalid: {header}")
         self.format = parts[0]
         self.type = parts[1]
         self.version = parts[2]
