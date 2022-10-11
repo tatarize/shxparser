@@ -72,7 +72,7 @@ def read_string(stream):
                 return bb.decode("utf-8")
             bb += b
     except UnicodeDecodeError as e:
-        raise ShxFontParseError("Read string did not capture valid text.") from e
+        raise ShxFontParseError(f"Read string did not capture valid text. {bb}") from e
 
 
 class ShxPath:
@@ -340,7 +340,7 @@ class ShxFont:
 
     def render(self, path, text, horizontal=True, font_size=12.0):
         if self.above is None:
-            raise ShxFontParseError("Header was not correctly parsed.")
+            self.above = 1
         self._scale = font_size / self.above
         self._horizontal = horizontal
         self._path = path
