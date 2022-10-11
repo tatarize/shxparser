@@ -9,6 +9,7 @@ from shxparser.shxparser import ShxFont, ShxPath, ShxFontParseError
 
 def draw(paths, w, h, font_size, filename="test.png"):
     from PIL import Image, ImageDraw
+
     im = Image.new('RGBA', (w, h), "white")
     draw = ImageDraw.Draw(im)
     for p in paths.path:
@@ -46,9 +47,11 @@ class TestParser(unittest.TestCase):
     def test_parse(self):
         for f in chain(glob("parse/*.SHX"), glob("parse/*.shx")):
             try:
-                shx = ShxFont(f, True)
+                shx = ShxFont(f)
                 paths = ShxPath()
                 shx.render(paths, "The quick brown fox jumps over the lazy dog", font_size=50)
+                bounds = paths.bounds()
+                print(bounds)
                 draw(paths, 2000, 100, 50, f"{f}.png")
             except ShxFontParseError:
                 print(f"Parse font failed {f}")

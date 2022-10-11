@@ -84,6 +84,26 @@ class ShxPath:
     def __init__(self):
         self.path = list()
 
+    def bounds(self):
+        """
+        Get bounds of paths.
+        :return:
+        """
+        min_x = float("inf")
+        min_y = float("inf")
+        max_x = -float("inf")
+        max_y = -float("inf")
+        for p in self.path:
+            min_x = min(p[0], min_x)
+            min_y = min(p[1], min_y)
+            max_x = max(p[0], max_x)
+            max_y = max(p[1], max_y)
+
+            min_x = min(p[-2], min_x)
+            min_y = min(p[-1], min_y)
+            max_x = max(p[-2], max_x)
+            max_y = max(p[-1], max_y)
+
     def new_path(self):
         """
         Start of a new path.
