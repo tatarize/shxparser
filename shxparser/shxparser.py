@@ -105,6 +105,7 @@ class ShxPath:
             min_y = min(p[-1], min_y)
             max_x = max(p[-2], max_x)
             max_y = max(p[-1], max_y)
+        return min_x, min_y, max_x, max_y
 
     def new_path(self):
         """
