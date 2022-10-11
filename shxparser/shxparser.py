@@ -414,48 +414,57 @@ class ShxFont:
         elif self._debug:
             print(f"Skipped.")
 
+    def _draw_subshape_shapes(self):
+        if self._debug:
+            print("subshape within shapes")
+        subshape = self.pop()
+        if not self._skip:
+            self._code += bytearray(reversed(self.glyphs[subshape]))
+            if self._debug:
+                print(f"Appending glyph {subshape}.")
+
+    def _draw_subshape_bigfont(self):
+        if self._debug:
+            print("subshape within bigfont")
+        subshape = self.pop()
+        if subshape == 0:
+            subshape = int_16le([self.pop(), self.pop()])
+            origin_x = self.pop() * self._scale
+            origin_y = self.pop() * self._scale
+            width = self.pop() * self._scale
+            height = self.pop() * self._scale
+        if not self._skip:
+            try:
+                self._code += bytearray(
+                    reversed(self.glyphs[subshape])
+                )
+                if self._debug:
+                    print(f"Appending glyph {subshape}.")
+            except KeyError as e:
+                raise ShxFontParseError from e
+        elif self._debug:
+            print(f"Skipped.")
+
+    def _draw_subshape_unifont(self):
+        if self._debug:
+            print("subshape within unifont")
+        subshape = int_16le([self.pop(), self.pop()])
+        if not self._skip:
+            self._code += bytearray(reversed(self.glyphs[subshape]))
+            if self._debug:
+                print(f"Appending glyph {subshape}.")
+        elif self._debug:
+            print(f"Skipped.")
+
     def _draw_subshape(self):
         if self._debug:
             print("DRAW_SUBSHAPE")
         if self.type == "shapes":
-            if self._debug:
-                print("subshape within shapes")
-            subshape = self.pop()
-            if not self._skip:
-                self._code += bytearray(reversed(self.glyphs[subshape]))
-                if self._debug:
-                    print(f"Appending glyph {subshape}.")
+            self._draw_subshape_shapes()
         elif self.type == "bigfont":
-            if self._debug:
-                print("subshape within bigfont")
-            subshape = self.pop()
-            if subshape == 0:
-                subshape = int_16le([self.pop(), self.pop()])
-                origin_x = self.pop() * self._scale
-                origin_y = self.pop() * self._scale
-                width = self.pop() * self._scale
-                height = self.pop() * self._scale
-            if not self._skip:
-                try:
-                    self._code += bytearray(
-                        reversed(self.glyphs[subshape])
-                    )
-                    if self._debug:
-                        print(f"Appending glyph {subshape}.")
-                except KeyError as e:
-                    raise ShxFontParseError from e
-            elif self._debug:
-                print(f"Skipped.")
+            self._draw_subshape_bigfont()
         elif self.type == "unifont":
-            if self._debug:
-                print("subshape within unifont")
-            subshape = int_16le([self.pop(), self.pop()])
-            if not self._skip:
-                self._code += bytearray(reversed(self.glyphs[subshape]))
-                if self._debug:
-                    print(f"Appending glyph {subshape}.")
-            elif self._debug:
-                print(f"Skipped.")
+            self._draw_subshape_unifont()
 
     def _xy_displacement(self):
         dx = signed8(self.pop()) * self._scale
