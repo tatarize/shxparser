@@ -280,6 +280,71 @@ class ShxFont:
         else:
             self._parse_code_length(direction, length)
 
+    def _parse_code_length(self, direction, length):
+        if self._skip:
+            return
+        if self._debug:
+            print(f"MOVE DIRECTION {direction}")
+        if direction in (2, 1, 0, 0xF, 0xE):
+            dx = 1.0
+        elif direction in (3, 0xD):
+            dx = 0.5
+        elif direction in (4, 0xC):
+            dx = 0.0
+        elif direction in (5, 0xB):
+            dx = -0.5
+        else:  # (6, 7, 8, 9, 0xa):
+            dx = -1.0
+        if direction in (6, 5, 4, 3, 2):
+            dy = 1.0
+        elif direction in (7, 1):
+            dy = 0.5
+        elif direction in (8, 0):
+            dy = 0.0
+        elif direction in (9, 0xF):
+            dy = -0.5
+        else:  # (0xa, 0xb, 0xc, 0xd, 0xe, 0xf):
+            dy = -1.0
+        self._x += dx * length * self._scale
+        self._y += dy * length * self._scale
+        if self._pen:
+            self._path.line(self._last_x, self._last_y, self._x, self._y)
+        else:
+            self._path.move(self._x, self._y)
+        self._last_x, self._last_y = self._x, self._y
+
+    def _parse_code_special(self, special):
+        if special == END_OF_SHAPE:
+            self._end_of_shape()
+        elif special == PEN_DOWN:
+            self._pen_down()
+        elif special == PEN_UP:
+            self._pen_up()
+        elif special == DIVIDE_VECTOR:
+            self._divide_vector()
+        elif special == MULTIPLY_VECTOR:
+            self._multiply_vector()
+        elif special == PUSH_STACK:
+            self._push_stack()
+        elif special == POP_STACK:
+            self._pop_stack()
+        elif special == DRAW_SUBSHAPE:
+            self._draw_subshape()
+        elif special == XY_DISPLACEMENT:
+            self._xy_displacement()
+        elif special == POLY_XY_DISPLACEMENT:
+            self._poly_xy_displacement()
+        elif special == OCTANT_ARC:
+            self._octant_arc()
+        elif special == FRACTIONAL_ARC:
+            self._fractional_arc()
+        elif special == BULGE_ARC:
+            self._bulge_arc()
+        elif special == POLY_BULGE_ARC:
+            self._poly_bulge_arc()
+        elif special == COND_MODE_2:
+            self._cond_mode_2()
+
     def _end_of_shape(self):
         if self._debug:
             print("END_OF_SHAPE")
@@ -459,13 +524,13 @@ class ShxFont:
 
     def _fractional_arc(self):
         """
-                    Fractional Arc.
-                    Octant Arc plus fractional bits 0-255 parts of 45°
-                    55° -> (55 - 45) * (256 / 45) = 56 (octent 1)
-                    45° + (56/256 * 45°) = 55°
-                    95° -> (95 - 90) * (256 / 45) = 28 (octent 2)
-                    90° + (28/256 * 45°) = 95°
-                    """
+        Fractional Arc.
+        Octant Arc plus fractional bits 0-255 parts of 45°
+        55° -> (55 - 45) * (256 / 45) = 56 (octent 1)
+        45° + (56/256 * 45°) = 55°
+        95° -> (95 - 90) * (256 / 45) = 28 (octent 2)
+        90° + (28/256 * 45°) = 95°
+        """
         if self._debug:
             print("FRACTION_ARC")
         octant = tau / 8.0
@@ -557,68 +622,3 @@ class ShxFont:
                 print("SKIP NEXT")
             self._skip = True
             return
-
-    def _parse_code_special(self, special):
-        if special == END_OF_SHAPE:
-            self._end_of_shape()
-        elif special == PEN_DOWN:
-            self._pen_down()
-        elif special == PEN_UP:
-            self._pen_up()
-        elif special == DIVIDE_VECTOR:
-            self._divide_vector()
-        elif special == MULTIPLY_VECTOR:
-            self._multiply_vector()
-        elif special == PUSH_STACK:
-            self._push_stack()
-        elif special == POP_STACK:
-            self._pop_stack()
-        elif special == DRAW_SUBSHAPE:
-            self._draw_subshape()
-        elif special == XY_DISPLACEMENT:
-            self._xy_displacement()
-        elif special == POLY_XY_DISPLACEMENT:
-            self._poly_xy_displacement()
-        elif special == OCTANT_ARC:
-            self._octant_arc()
-        elif special == FRACTIONAL_ARC:
-            self._fractional_arc()
-        elif special == BULGE_ARC:
-            self._bulge_arc()
-        elif special == POLY_BULGE_ARC:
-            self._poly_bulge_arc()
-        elif special == COND_MODE_2:
-            self._cond_mode_2()
-
-    def _parse_code_length(self, direction, length):
-        if self._skip:
-            return
-        if self._debug:
-            print(f"MOVE DIRECTION {direction}")
-        if direction in (2, 1, 0, 0xF, 0xE):
-            dx = 1.0
-        elif direction in (3, 0xD):
-            dx = 0.5
-        elif direction in (4, 0xC):
-            dx = 0.0
-        elif direction in (5, 0xB):
-            dx = -0.5
-        else:  # (6, 7, 8, 9, 0xa):
-            dx = -1.0
-        if direction in (6, 5, 4, 3, 2):
-            dy = 1.0
-        elif direction in (7, 1):
-            dy = 0.5
-        elif direction in (8, 0):
-            dy = 0.0
-        elif direction in (9, 0xF):
-            dy = -0.5
-        else:  # (0xa, 0xb, 0xc, 0xd, 0xe, 0xf):
-            dy = -1.0
-        self._x += dx * length * self._scale
-        self._y += dy * length * self._scale
-        if self._pen:
-            self._path.line(self._last_x, self._last_y, self._x, self._y)
-        else:
-            self._path.move(self._x, self._y)
-        self._last_x, self._last_y = self._x, self._y
