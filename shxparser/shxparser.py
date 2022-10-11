@@ -346,11 +346,19 @@ class ShxFont:
             self._cond_mode_2()
 
     def _end_of_shape(self):
+        """
+        End of shape definition.
+        :return:
+        """
         if self._debug:
             print("END_OF_SHAPE")
         self._path.new_path()
 
     def _pen_down(self):
+        """
+        Activates draw mode. Pen is down. Draw is activated for each shape.
+        :return:
+        """
         if self._debug:
             print(f"PEN_DOWN {self._x}, {self._y}")
         if not self._skip:
@@ -360,6 +368,10 @@ class ShxFont:
             print(f"Skipped.")
 
     def _pen_up(self):
+        """
+        Deactivates draw mode. Subsequent draws are moves to new locations.
+        :return:
+        """
         if self._debug:
             print("PEN_UP")
         if not self._skip:
@@ -368,6 +380,12 @@ class ShxFont:
             print(f"Skipped.")
 
     def _divide_vector(self):
+        """
+        Height is specified with shape command. Initially considered the length of a single vector.
+        Divides the scale factor by the next byte.
+
+        :return:
+        """
         factor = self.pop()
         if not self._skip:
             self._scale /= factor
@@ -377,6 +395,11 @@ class ShxFont:
             print(f"DIVIDE_VECTOR {factor} changes scale to {self._scale}")
 
     def _multiply_vector(self):
+        """
+        Multiplies the scale factor by the next byte.
+
+        :return:
+        """
         factor = self.pop()
         if not self._skip:
             self._scale *= factor
@@ -386,6 +409,12 @@ class ShxFont:
             print(f"DIVIDE_VECTOR {factor} changes scale to {self._scale}")
 
     def _push_stack(self):
+        """
+        Stack is considered four units deep. Everything pushed on the stack must be
+        popped from the stack. Overflows respond with an error message.
+
+        :return:
+        """
         if not self._skip:
             if self._debug:
                 print(f"PUSH_STACK {self._x}, {self._y}")
@@ -398,6 +427,11 @@ class ShxFont:
             print(f"Skipped.")
 
     def _pop_stack(self):
+        """
+        Stack is considered four units deep. You may not pop more locations than have
+        been pushed onto the stack. Attempts to do so will respond with a error message.
+        :return:
+        """
         if self._debug:
             print(f"POP_STACK {self._x}, {self._y}")
         if not self._skip:
@@ -457,6 +491,14 @@ class ShxFont:
             print(f"Skipped.")
 
     def _draw_subshape(self):
+        """
+        Subshape is given in next byte, for non-unicode fonts one byte is used for
+        unicode fonts two bytes are used and shapes are numbered from 1 to 65535.
+
+        Drawmode is not reset for the subshape. When complete the current shape
+        continues.
+        :return:
+        """
         if self._debug:
             print("DRAW_SUBSHAPE")
         if self.type == "shapes":
@@ -467,6 +509,11 @@ class ShxFont:
             self._draw_subshape_unifont()
 
     def _xy_displacement(self):
+        """
+        X,Y displacement given in next two bytes 1 byte-x, 1 byte-y. The displacement
+        ranges from -128 to +127.
+        :return:
+        """
         dx = signed8(self.pop()) * self._scale
         dy = signed8(self.pop()) * self._scale
         if self._debug:
@@ -483,6 +530,10 @@ class ShxFont:
             print(f"Skipped.")
 
     def _poly_xy_displacement(self):
+        """
+        XY displacement in a series terminated with (0,0)
+        :return:
+        """
         while True:
             dx = signed8(self.pop()) * self._scale
             dy = signed8(self.pop()) * self._scale
@@ -502,6 +553,21 @@ class ShxFont:
                 print(f"Skipped.")
 
     def _octant_arc(self):
+        """
+        Octant arc spans one or more 45° octants starting and ending at a boundary.
+        Octants are numbered ccw starting from 0° at the 3 o'clock position.
+
+        3 2 1
+         \ /
+        4-O-0
+         / \
+        5 6 7
+
+        First byte specifies the radius as a value from 1 to 255. The second is the
+        direction of the arc. Each nibble of the second byte defines s and c the start
+        and the span.
+        :return:
+        """
         if self._debug:
             print("OCTANT_ARC")
         radius = self.pop() * self._scale
@@ -571,6 +637,14 @@ class ShxFont:
             self._last_x, self._last_y = self._x, self._y
 
     def _bulge_arc(self):
+        """
+        Arc defined by xy and displacement bulge. 1-byte-X, 1-byte-Y, 1-byte-bulge.
+
+        This gives us X from -127 to +127 and Y from -127 to +127. The bulge height
+        is given as 127  * 2 * H / D If the sign is negative the location is clockwise.
+
+        :return:
+        """
         if self._debug:
             print("BULGE_ARC")
         dx = signed8(self.pop()) * self._scale
@@ -596,6 +670,10 @@ class ShxFont:
             self._last_x, self._last_y = self._x, self._y
 
     def _poly_bulge_arc(self):
+        """
+        Similar to bulge but repeated, until X and Y are (0,0).
+        :return:
+        """
         while True:
             if self._debug:
                 print("POLY_BULGE_ARC")
@@ -624,6 +702,11 @@ class ShxFont:
                 self._last_x, self._last_y = self._x, self._y
 
     def _cond_mode_2(self):
+        """
+        Process the next command only in vertical text.
+
+        :return:
+        """
         if self._debug:
             print("COND_MODE_2")
         if self.modes == 2 and self._horizontal:
