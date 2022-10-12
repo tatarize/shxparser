@@ -338,7 +338,15 @@ class ShxFont:
         except IndexError as e:
             raise ShxFontParseError("No codes to pop()") from e
 
-    def render(self, path, text, horizontal=True, font_size=12.0):
+    def _append_code(self, code):
+        if isinstance(code, str):
+            code = ord(code)
+        if code in self.glyphs:
+            self._code = bytearray(reversed(self.glyphs[code]))
+            return True
+        return False
+
+    def render(self, path, text, horizontal=True, font_size=12.0, modify_case=True):
         if self.above is None:
             self.above = 1
         self._scale = font_size / self.above
@@ -346,11 +354,12 @@ class ShxFont:
         self._path = path
         for letter in text:
             self._letter = letter
-            try:
-                self._code = bytearray(reversed(self.glyphs[ord(letter)]))
-            except KeyError:
-                # Letter is not found.
-                continue
+            if not self._append_code(letter):
+                if not modify_case or (
+                    not self._append_code(letter.upper())
+                    and not self._append_code(letter.lower())
+                ):
+                    continue
             self._pen = True
             while self._code:
                 try:
