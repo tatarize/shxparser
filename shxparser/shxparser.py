@@ -1,6 +1,6 @@
 from math import tau, cos, sin, atan2
 
-SHXPARSER_VERSION = "0.0.1"
+SHXPARSER_VERSION = "0.0.2"
 
 
 END_OF_SHAPE = 0
