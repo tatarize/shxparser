@@ -6,6 +6,11 @@ SHX files are an AutoCad format which can encode single line fonts.
 
 This format is used for many CNC and laser operations.
 
+# Install
+
+`pip install shxparser`
+
+
 ---
 
 # Progress
