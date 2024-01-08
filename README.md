@@ -15,7 +15,7 @@ This format is used for many CNC and laser operations.
 
 # Progress
 
-Things currently parse, text converts to paths. There may be edge cases and bugs within the code.
+Things currently parse, text converts to paths. This is strongly believed to be complete and correct.
 
 # Encoding
 Calling the parser on a `SHX` file will parse the file. The glyph data is accessed via the `ShxFile.glyphs` dictionary which stores the particular commands.
